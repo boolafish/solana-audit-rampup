@@ -1,9 +1,23 @@
 # References and evidence base
 
-These are the high-signal sources used to build the guide. Prefer official docs, framework docs, and public audit/exploit writeups over unsourced social posts.
+These are the high-signal sources used to build the guide. Prefer official docs, framework docs, public audits, and incident writeups over unsourced social posts.
 
+For version-sensitive behavior, prefer the exact docs.rs version matching the target `Cargo.lock` / `Anchor.toml` over `/latest/`, especially for `anchor-lang`, `anchor-spl`, `solana-program`, `spl-token`, and `spl-token-2022`.
+
+- https://docs.pyth.network/entropy
+- https://docs.pyth.network/price-feeds/use-real-time-data/solana
+- https://docs.realms.today/
+- https://docs.rs/anchor-lang/latest/anchor_lang/
+- https://docs.rs/anchor-lang/latest/anchor_lang/accounts/account/struct.Account.html
+- https://docs.rs/anchor-lang/latest/anchor_lang/accounts/account_loader/struct.AccountLoader.html
+- https://docs.rs/anchor-lang/latest/anchor_lang/accounts/unchecked_account/struct.UncheckedAccount.html
+- https://docs.rs/anchor-lang/latest/anchor_lang/derive.Accounts.html
+- https://docs.rs/bytemuck/latest/bytemuck/
+- https://docs.rs/solana-ed25519-program/latest/solana_ed25519_program/
 - https://docs.rs/solana-program/latest/solana_program/sysvar/index.html
 - https://docs.rs/solana-program/latest/solana_program/sysvar/instructions/index.html
+- https://docs.squads.so/
+- https://docs.switchboard.xyz/
 - https://github.com/coral-xyz/sealevel-attacks
 - https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/account-data-matching.md
 - https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/arbitrary-cpi.md
@@ -17,9 +31,18 @@ These are the high-signal sources used to build the guide. Prefer official docs,
 - https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/type-cosplay.md
 - https://github.com/solana-foundation/developer-content/tree/main/content/courses/program-security
 - https://github.com/solana-labs/security-audits
+- https://github.com/solana-labs/security-audits/blob/master/solana/AddressLookupTable_OtterSec_2022-08-23.pdf
+- https://github.com/solana-labs/security-audits/blob/master/spl/HalbornStakePoolAudit-2023-01-25.pdf
+- https://github.com/solana-labs/security-audits/blob/master/spl/OtterSecAccountCompressionAudit-2022-12-03.pdf
 - https://github.com/solana-labs/security-audits/blob/master/spl/OtterSecToken2022Audit-2023-11-03.pdf
+- https://github.com/solana-labs/security-audits/blob/master/spl/TrailOfBitsToken2022Audit-2023-02-10.pdf
+- https://github.com/solana-labs/security-audits/blob/master/spl/ZellicSinglePoolAudit-2023-06-21.pdf
+- https://github.com/solana-labs/solana-program-library/tree/master/governance
 - https://neodyme.io/en/blog/solana_common_pitfalls/
+- https://rekt.news/cashio-rekt/
+- https://rekt.news/crema-finance-rekt/
 - https://rekt.news/mango-markets-rekt/
+- https://rekt.news/nirvana-rekt/
 - https://solana.com/docs/core/accounts
 - https://solana.com/docs/core/cpi
 - https://solana.com/docs/core/fees
@@ -27,23 +50,26 @@ These are the high-signal sources used to build the guide. Prefer official docs,
 - https://solana.com/docs/core/programs
 - https://solana.com/docs/core/transactions
 - https://solana.com/docs/tokens/extensions
+- https://solana.com/news/8-2-2022-application-wallet-incident
 - https://spl.solana.com/token
 - https://spl.solana.com/token-2022
 - https://www.anchor-lang.com/docs/basics/cpi
+- https://www.anchor-lang.com/docs/features/events
+- https://www.anchor-lang.com/docs/features/zero-copy
 - https://www.anchor-lang.com/docs/references/account-constraints
+- https://www.anchor-lang.com/docs/tokens/basics/create-token-account
+- https://www.certik.com/resources/blog/crema-finance-exploit
+- https://www.certik.com/resources/blog/nirvana-finance-incident-analysis
+- https://www.certik.com/resources/blog/wormhole-bridge-exploit-incident-analysis
+- https://www.certik.com/skynet-report/raydium-protocol-exploit-incident-analysis
+- https://www.halborn.com/blog/post/explained-the-crema-finance-hack-july-2022
+- https://www.helius.dev/blog/a-hitchhikers-guide-to-solana-program-security
 - https://www.helius.dev/blog/priority-fees-understanding-solanas-transaction-fee-mechanics
 - https://www.helius.dev/blog/solana-mev-an-introduction
-
-## Incident / audit examples to inspect during ramp-up
-
-- Wormhole bridge exploit (2022): guardian/signature/sysvar/account validation class. https://www.certik.com/skynet-report/wormhole-bridge-exploit-incident-analysis
-- Cashio exploit (2022): incomplete collateral/account validation and infinite mint class. https://rekt.news/cashio-rekt
-- Mango Markets (2022): oracle/market manipulation and bad debt class. https://rekt.news/mango-markets-rekt/
-- Nirvana Finance (2022): price/economic manipulation class. https://www.certik.com/skynet-report/nirvana-finance-incident-analysis
-- Solana Labs public security audits: https://github.com/solana-labs/security-audits
 
 ## Caveats
 
 - Solana and Anchor evolve. Confirm exact behavior against the project’s Anchor/Solana/SPL versions.
 - Some CTF examples document historical classes; modern Anchor may mitigate pieces by default, but unchecked/manual code can reintroduce them.
 - MEV/front-running is infrastructure-dependent. Avoid blanket claims such as “front-running is impossible on Solana.”
+- Rent usually means rent-exempt minimum-balance/account-lifecycle risk, not an Ethereum-like recurring storage fee.

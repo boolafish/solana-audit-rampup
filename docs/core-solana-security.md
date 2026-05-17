@@ -4,11 +4,11 @@ Audience: experienced Ethereum/Solidity auditor reviewing Solana programs. Empha
 
 ## Mental model differences vs Solidity
 
-- **Code and state are separate.** Programs are stateless executable accounts; all state lives in accounts supplied by the transaction. A handler must validate every account it uses.
+- **Code and state are separate.** Programs are executable accounts, often with separate ProgramData when upgradeable. They do not have implicit per-contract storage like EVM contracts; persistent protocol/user state lives in separate accounts supplied by the transaction. A handler must validate every account it uses.
 - **Callers choose most accounts.** Unlike Solidity where `address(this).storage` is implicit, Solana instructions receive an arbitrary `AccountInfo[]`. Missing account validation is the root of many bugs.
 - **Authorization is not `msg.sender`.** Any account can be passed; `is_signer` only means the transaction included that account's signature, and PDAs can “sign” only via `invoke_signed` with valid seeds.
 - **Mutability is declared up front.** Accounts must be marked writable in the transaction/CPI to change data or lamports. Bugs often come from failing to require/check `is_writable`, duplicate writable aliases, or assuming readonly means safe.
-- **Ownership is data-write authority, not asset ownership.** Only the owning program may modify account data or debit lamports, but any program may read accounts. Token ownership is SPL Token state, not Solana account `owner`.
+- **Ownership is data-write authority, not asset ownership.** Only an account’s owning program may modify its data, resize it, or assign it under normal runtime rules. Lamport decreases are separately constrained by runtime ownership/signature/program rules, while lamport credits can generally be made to writable accounts. Token ownership is SPL Token state, not Solana account `owner`.
 - **CPI is like an external call, but with explicit accounts and program id.** The caller supplies the callee program account and all callee accounts; arbitrary-CPI bugs occur when program IDs are not pinned.
 - **Transactions are atomic, and account locks drive parallel execution.** A transaction succeeds or fails as a unit; declared writable accounts are locked and constrain parallelism. Compute and account-lock choices can become DoS surfaces.
 
@@ -56,7 +56,7 @@ Audience: experienced Ethereum/Solidity auditor reviewing Solana programs. Empha
   - Anchor account constraints (`init`, `init_if_needed`): https://www.anchor-lang.com/docs/references/account-constraints
 
 ### 6. PDA seed/bump mistakes and non-canonical bumps
-- **Why different:** PDAs are deterministic addresses controlled by a program, used as authorities/signers. Multiple valid bumps may exist for the same seed prefix if the bump is caller-chosen.
+- **Why different:** PDAs are deterministic addresses controlled by a program, used as authorities/signers. Multiple valid bumps may exist for the same seed prefix if the bump is caller-chosen; this is not a cryptographic collision, but multiple valid PDA addresses for one logical resource.
 - **Bad pattern:** Accept user-supplied bump with `create_program_address` and do not ensure it is the canonical bump from `find_program_address`; use low-entropy/shared seeds; omit domain separators.
 - **Mitigation:** Use canonical bump from `find_program_address`; persist the bump when needed; in Anchor use `seeds = [...]` and `bump`; include unique domain prefixes and relevant account keys in seeds.
 - **References:**
@@ -115,13 +115,13 @@ Audience: experienced Ethereum/Solidity auditor reviewing Solana programs. Empha
 ### 13. Account close, revival, and stale data
 - **Why different:** Closing is usually implemented by transferring lamports and assigning/zeroing data. Historically/CTF-style, if data/discriminator remains and lamports are later restored in the same transaction, a “closed” account can be revived or reused unexpectedly.
 - **Bad pattern:** Drain lamports but leave owner/data/discriminator as valid program state; later instruction in same transaction re-funds account and uses stale state.
-- **Mitigation:** Use Anchor `close = recipient`; for manual closes, zero data or set a closed discriminator, transfer all lamports, and ensure no subsequent logic trusts the account. Consider same-transaction instruction ordering.
+- **Mitigation:** Prefer Anchor `close = recipient` and verify exact behavior for the Anchor version in scope; for manual closes, clear/invalidate data, refund lamports intentionally, and ensure no subsequent same-transaction logic trusts the account.
 - **References:**
   - Closing accounts: https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/closing-accounts.md
   - Anchor `close` constraint: https://www.anchor-lang.com/docs/references/account-constraints
 
 ### 14. Rent-exemption and storage resizing edge cases
-- **Why different:** Accounts must hold enough lamports for rent exemption, and reallocating data changes required balance. Storage is not a free mapping slot as in EVM.
+- **Why different:** Accounts must hold enough lamports for rent-exempt storage, and reallocating data changes required balance. In current Solana practice, “rent” usually means minimum balance/account lifecycle, not an Ethereum-like recurring storage fee. Storage is not a free mapping slot as in EVM.
 - **Bad pattern:** `realloc` to larger size without funding rent; shrink/grow without zeroing new bytes; leave sensitive or type-confusing stale bytes; assume closed/zero-lamport accounts cannot reappear in same transaction.
 - **Mitigation:** Use Anchor `realloc`, `realloc::payer`, `realloc::zero` constraints; recompute rent for final size; zero newly allocated regions when needed; test shrink/grow/close flows.
 - **References:**
@@ -129,7 +129,7 @@ Audience: experienced Ethereum/Solidity auditor reviewing Solana programs. Empha
   - Anchor realloc constraints: https://www.anchor-lang.com/docs/references/account-constraints
 
 ### 15. Integer overflow/underflow and precision/rounding
-- **Why different:** Rust release builds may not panic on integer overflow in the same intuitive way as debug builds; Solana programs commonly use fixed-point math, token decimals, and `u64` lamports/token amounts. Solidity auditors will recognize this class, but Rust/Solana APIs make checked math a conscious choice.
+- **Why different:** Unlike Solidity 0.8 checked arithmetic, Rust primitive integer overflow is not automatically safe in optimized Solana program builds unless overflow checks or checked/saturating APIs are used. Solana programs commonly use fixed-point math, token decimals, and `u64` lamports/token amounts. Solidity auditors will recognize this class, but Rust/Solana APIs make checked math a conscious choice.
 - **Bad pattern:** `balance -= amount`, `amount * price / scale`, or reward-per-share math without `checked_*`, larger intermediate type, rounding policy, or decimal normalization.
 - **Mitigation:** Use `checked_add/sub/mul/div`, `u128` intermediates, explicit rounding direction, decimal bounds, and invariant tests/fuzzing. Be careful with division before multiplication and fee rounding that can be exploited by repeated small trades.
 - **References:**
@@ -209,3 +209,20 @@ Audience: experienced Ethereum/Solidity auditor reviewing Solana programs. Empha
 - Solana sysvar docs: https://docs.rs/solana-program/latest/solana_program/sysvar/index.html
 - SPL Token docs: https://spl.solana.com/token
 - Token-2022 docs: https://spl.solana.com/token-2022
+
+## Additional expert-review patterns added to the site
+
+The interactive site now includes dedicated cards for several patterns that were previously only implicit or missing:
+
+- Stale account data after CPI / missing Anchor `reload()`
+- Instruction introspection and Ed25519/secp signature verification misuse
+- Insecure randomness from slots/timestamps/blockhash-like values
+- Detailed oracle feed validation: feed identity, freshness, confidence, exponent/decimals, liquidity
+- `remaining_accounts` count/order/type assumptions
+- Native SOL lamport accounting and rent floors
+- Zero-copy / bytemuck / POD layout hazards
+- Event/log reliance as non-authoritative state
+- Governance/multisig/timelock validation gaps
+- Native parser hazards: manual offsets, unchecked deserialization, versioned layouts
+
+For concrete native and Anchor bad/good snippets, see `data/patterns.json` or the website cards.

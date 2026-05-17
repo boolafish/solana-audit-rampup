@@ -4,11 +4,15 @@ A compact, evidence-backed ramp-up site for auditors who already know Ethereum/S
 
 ## What is inside
 
-- `site/index.html` — polished static website with filters and bad/good patterns.
-- `data/patterns.json` — structured vulnerability knowledge base.
+- `site/index.html` — polished static website with learning path, account-validation matrix, filters, incident mapping, and audit-report findings.
+- `data/patterns.json` — structured vulnerability knowledge base (30 patterns).
+- `data/incidents.json` — real Solana incidents mapped to patterns.
+- `data/audit-findings.json` — public audit report findings mapped to patterns.
 - `docs/core-solana-security.md` — Solana-specific audit notes.
 - `docs/anchor-security.md` — Anchor-specific pitfalls and mitigations.
-- `docs/references.md` — source list and incident/audit links.
+- `docs/audit-workflow.md` — practical audit workflow/checklist.
+- `docs/incidents.md` and `docs/audit-report-patterns.md` — evidence mapping.
+- `docs/references.md` — source list and caveats.
 
 ## How to view
 
@@ -20,4 +24,4 @@ cd /Users/bot.ai/solana-audit-rampup
 
 ## Accuracy stance
 
-This is an auditor ramp-up guide, not a substitute for reading the target code and official docs. Claims are phrased conservatively: Solana has no Ethereum-style public in-protocol mempool, but MEV/front-running/order games still exist; rent is usually an account-lifecycle/realloc/close risk rather than a standalone exploit class.
+This is an auditor ramp-up guide, not a substitute for reading the target code and official docs. Claims are phrased conservatively: Solana has no globally gossiped Ethereum-style public mempool, but MEV/front-running/order games still exist; rent is usually an account-lifecycle/realloc/close risk rather than a standalone exploit class; Anchor/runtime behavior can be version-sensitive.

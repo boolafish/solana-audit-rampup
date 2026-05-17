@@ -1,0 +1,105 @@
+[
+  {
+    "name": "Wormhole",
+    "year": "2022",
+    "impact": "~120k wETH minted / ~$320M at the time",
+    "root": "Guardian signature verification/account validation failure involving instruction sysvar validation path.",
+    "patterns": [
+      "signature-introspection",
+      "sysvar-spoof",
+      "missing-owner"
+    ],
+    "takeaway": "Do not merely check that a verification-looking instruction/account exists; bind sysvar, verifier program, signer, payload, and instruction position.",
+    "refs": [
+      "https://www.certik.com/resources/blog/wormhole-bridge-exploit-incident-analysis"
+    ]
+  },
+  {
+    "name": "Cashio",
+    "year": "2022",
+    "impact": "~$48M",
+    "root": "Incomplete collateral/LP/mint account validation allowed fake account chains and infinite CASH minting.",
+    "patterns": [
+      "relationship-checks",
+      "missing-owner",
+      "token2022"
+    ],
+    "takeaway": "Valid accounts must also be the right accounts for the mint/pool/collateral chain; cross-check every relationship.",
+    "refs": [
+      "https://rekt.news/cashio-rekt/"
+    ]
+  },
+  {
+    "name": "Crema Finance",
+    "year": "2022",
+    "impact": "~$8.8M reported",
+    "root": "Fake tick/price account and faulty owner/account validation in concentrated liquidity fee-claim path.",
+    "patterns": [
+      "missing-owner",
+      "relationship-checks",
+      "native-parser-hazards"
+    ],
+    "takeaway": "Audit all instruction variants and helper paths; one correctly validated path does not protect a sibling method.",
+    "refs": [
+      "https://rekt.news/crema-finance-rekt/",
+      "https://www.certik.com/resources/blog/crema-finance-exploit",
+      "https://www.halborn.com/blog/post/explained-the-crema-finance-hack-july-2022"
+    ]
+  },
+  {
+    "name": "Mango Markets",
+    "year": "2022",
+    "impact": "~$115M bad debt / drained liquidity",
+    "root": "Low-liquidity market/oracle/economic manipulation enabled inflated collateral borrowing.",
+    "patterns": [
+      "oracle-validation",
+      "oracle-mev"
+    ],
+    "takeaway": "Economic design and liquidity-aware risk parameters are audit scope, not just code correctness.",
+    "refs": [
+      "https://rekt.news/mango-markets-rekt/"
+    ]
+  },
+  {
+    "name": "Nirvana Finance",
+    "year": "2022",
+    "impact": "~$3.5M attacker profit, larger protocol damage",
+    "root": "Flash-loan-assisted pricing/economic manipulation of protocol mechanism.",
+    "patterns": [
+      "oracle-validation",
+      "oracle-mev"
+    ],
+    "takeaway": "Check AMM/pricing invariants, manipulation cost, circuit breakers, and atomic composition assumptions.",
+    "refs": [
+      "https://www.certik.com/resources/blog/nirvana-finance-incident-analysis",
+      "https://rekt.news/nirvana-rekt/"
+    ]
+  },
+  {
+    "name": "Raydium",
+    "year": "2022",
+    "impact": "~$4M+ reported",
+    "root": "Compromised admin/owner authority used to drain pools.",
+    "patterns": [
+      "upgrade-admin",
+      "governance-timelock"
+    ],
+    "takeaway": "Key management, authority blast radius, and emergency/admin powers are part of security review.",
+    "refs": [
+      "https://www.certik.com/skynet-report/raydium-protocol-exploit-incident-analysis"
+    ]
+  },
+  {
+    "name": "Slope wallet incident",
+    "year": "2022",
+    "impact": "~9,231 wallets affected",
+    "root": "Wallet/application key handling failure, not a Solana program bug.",
+    "patterns": [
+      "upgrade-admin"
+    ],
+    "takeaway": "Classify ecosystem losses correctly; wallet/key custody incidents may be out of smart-contract scope but affect threat model.",
+    "refs": [
+      "https://solana.com/news/8-2-2022-application-wallet-incident"
+    ]
+  }
+]

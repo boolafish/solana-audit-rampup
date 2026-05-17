@@ -72,10 +72,11 @@ pub ix_sysvar: AccountInfo<'info>;
 #[account(executable)]
 pub some_program: AccountInfo<'info>;
 ```
-Even better for SPL Token accounts:
+For classic SPL Token-only accounts:
 ```rust
 pub token: Account<'info, TokenAccount>;
 ```
+If Token-2022 support is intentional, use `InterfaceAccount<'info, TokenAccount>` plus explicit `*::token_program = token_program` constraints and extension policy checks.
 References: sealevel-attacks `2-owner-checks`, `5-arbitrary-cpi`; Anchor constraints docs.
 
 ### 5. Type cosplay / discriminator checks
@@ -204,7 +205,7 @@ pub account: Account<'info, Data>;
 #[account(mut)]
 pub destination: SystemAccount<'info>;
 ```
-Reference: Anchor `close` constraint sends lamports, assigns owner to System Program, and resets data; sealevel-attacks `9-closing-accounts`.
+Reference: Anchor `close` is safer than manual lamport draining, but exact data/owner/realloc behavior is version-sensitive; verify target Anchor version. See Anchor constraints and sealevel-attacks `9-closing-accounts`.
 
 ### 13. `remaining_accounts`
 Bad:
@@ -219,7 +220,7 @@ for acc in ctx.remaining_accounts.iter() {
     // deserialize with discriminator/type checks; verify PDA/address/relationship
 }
 ```
-Never assume Anchor constraints apply to `remaining_accounts`; they are raw `AccountInfo`s outside the `#[derive(Accounts)]` validation path.
+Never assume Anchor constraints apply to `remaining_accounts`; they are raw `AccountInfo`s outside the `#[derive(Accounts)]` validation path. Validate exact expected length and ordering; reject unexpected extras unless variable inputs are intentional. For each remaining account, validate owner/program, discriminator/type, writable/signer flags, PDA/address, and relationships before use.
 
 ### 14. Constraint ordering and dependencies
 Best practices:
@@ -241,7 +242,7 @@ pub user_a: Account<'info, User>;
 #[account(mut)]
 pub user_b: Account<'info, User>;
 ```
-Anchor now prevents duplicate mutable accounts by default for mutable serializing account types; only use `dup` intentionally.
+Some Anchor versions/account types reject duplicate mutable accounts during account validation, but do not rely on framework behavior for business-logic distinctness. Add explicit `constraint = a.key() != b.key()` for every pair of roles that must be different, especially for `UncheckedAccount`, `AccountInfo`, token/interface accounts, and `remaining_accounts`.
 Reference: Anchor `dup` docs; sealevel-attacks `6-duplicate-mutable-accounts`.
 
 ### 16. Anchor token-interface pitfalls
@@ -264,7 +265,7 @@ pub mint: InterfaceAccount<'info, Mint>;
 pub token_account: InterfaceAccount<'info, TokenAccount>;
 pub token_program: Interface<'info, TokenInterface>;
 ```
-Best practices: decide whether classic Token, Token-2022, or either is allowed; bind mint/account constraints to the exact token program; validate extensions/transfer hooks/confidential-transfer/freeze authority if they affect protocol assumptions; use associated token constraints when expecting an ATA.
+Best practices: decide whether classic Token, Token-2022, or either is allowed; bind mint/account constraints to the exact token program; validate or reject extensions such as transfer fees, transfer hooks, default frozen state, permanent delegates, non-transferability, confidential transfer, CPI guard, interest-bearing/scaled UI amounts, metadata/group pointers, and close/freeze authority differences if they affect protocol assumptions; use associated token constraints when expecting an ATA. `InterfaceAccount` validates token-interface shape, not economic compatibility.
 Reference: Anchor SPL token-interface docs and constraints docs show `*::token_program = <target_account>` override for token constraints.
 
 ## Credible references
@@ -279,3 +280,30 @@ Reference: Anchor SPL token-interface docs and constraints docs show `*::token_p
 - Coral sealevel-attacks examples: https://github.com/coral-xyz/sealevel-attacks
 - SlowMist Solana smart contract security best practices: https://github.com/slowmist/solana-smart-contract-security-best-practices
 - Helius Solana program security guide: https://www.helius.dev/blog/a-hitchhikers-guide-to-solana-program-security
+
+### 17. Stale account data after CPI / `reload()`
+
+Bad:
+```rust
+let before = ctx.accounts.vault.amount;
+token::transfer(ctx.accounts.transfer_ctx(), amount)?;
+// BUG: ctx.accounts.vault.amount may be stale
+require!(ctx.accounts.vault.amount == before + amount, ErrorCode::BadBalance);
+```
+
+Good:
+```rust
+let before = ctx.accounts.vault.amount;
+token::transfer(ctx.accounts.transfer_ctx(), amount)?;
+ctx.accounts.vault.reload()?;
+require!(ctx.accounts.vault.amount >= before, ErrorCode::BadBalance);
+```
+
+### 18. Version-sensitive behavior checklist
+
+For every target, check exact versions in `Cargo.lock` / `Anchor.toml` rather than relying on generic latest-doc behavior:
+
+- `anchor-lang` and `anchor-spl`
+- `solana-program`
+- `spl-token` and `spl-token-2022`
+- Anchor `close`, duplicate mutable account validation, `init_if_needed`, `realloc`, token-interface constraints

@@ -1,0 +1,105 @@
+[
+  {
+    "source": "OtterSec Token-2022 Audit",
+    "area": "SPL Token-2022",
+    "findings": [
+      "Incorrect account ordering",
+      "Lack of mint account verification",
+      "Missing signer checks",
+      "Unnecessary writable multisig access",
+      "Confidential-transfer validation issues"
+    ],
+    "patterns": [
+      "token2022",
+      "remaining-accounts",
+      "missing-signer"
+    ],
+    "refs": [
+      "https://github.com/solana-labs/security-audits/blob/master/spl/OtterSecToken2022Audit-2023-11-03.pdf"
+    ]
+  },
+  {
+    "source": "Trail of Bits Token-2022 Audit",
+    "area": "SPL Token-2022",
+    "findings": [
+      "Missing ownership checks",
+      "TLV/extension parsing and length checks",
+      "Front-running concern in withheld-token withdrawal flow"
+    ],
+    "patterns": [
+      "token2022",
+      "missing-owner",
+      "oracle-mev"
+    ],
+    "refs": [
+      "https://github.com/solana-labs/security-audits/blob/master/spl/TrailOfBitsToken2022Audit-2023-02-10.pdf"
+    ]
+  },
+  {
+    "source": "Zellic Single Pool Audit",
+    "area": "SPL Single Pool",
+    "findings": [
+      "Incorrect vote account deserialization offsets",
+      "Missing authority account check",
+      "Strong account-by-account validation matrix examples"
+    ],
+    "patterns": [
+      "native-parser-hazards",
+      "relationship-checks",
+      "missing-owner"
+    ],
+    "refs": [
+      "https://github.com/solana-labs/security-audits/blob/master/spl/ZellicSinglePoolAudit-2023-06-21.pdf"
+    ]
+  },
+  {
+    "source": "Halborn Stake Pool Audit",
+    "area": "SPL Stake Pool",
+    "findings": [
+      "Fee update timing/epoch edge cases",
+      "Unsafe unwrap/panic surfaces",
+      "Overflow-check configuration concerns"
+    ],
+    "patterns": [
+      "math",
+      "compute-dos",
+      "native-parser-hazards"
+    ],
+    "refs": [
+      "https://github.com/solana-labs/security-audits/blob/master/spl/HalbornStakePoolAudit-2023-01-25.pdf"
+    ]
+  },
+  {
+    "source": "OtterSec Address Lookup Table Audit",
+    "area": "Core Solana",
+    "findings": [
+      "Indirect account loading lifecycle",
+      "Deactivation/close/reuse concerns",
+      "Authority/lifecycle edge cases"
+    ],
+    "patterns": [
+      "close-revival",
+      "remaining-accounts",
+      "upgrade-admin"
+    ],
+    "refs": [
+      "https://github.com/solana-labs/security-audits/blob/master/solana/AddressLookupTable_OtterSec_2022-08-23.pdf"
+    ]
+  },
+  {
+    "source": "OtterSec Account Compression Audit",
+    "area": "SPL Account Compression",
+    "findings": [
+      "Merkle proof/invariant validation",
+      "Tree parameter checks",
+      "Underflow/panic-style issues"
+    ],
+    "patterns": [
+      "math",
+      "native-parser-hazards"
+    ],
+    "refs": [
+      "https://github.com/solana-labs/security-audits/blob/master/spl/OtterSecAccountCompressionAudit-2022-12-03.pdf"
+    ]
+  }
+]
