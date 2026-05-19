@@ -11,6 +11,7 @@ A compact, evidence-backed ramp-up site for auditors who already know Ethereum/S
 - `docs/core-solana-security.md` — Solana-specific audit notes.
 - `docs/anchor-security.md` — Anchor-specific pitfalls and mitigations.
 - `docs/audit-workflow.md` — practical audit workflow/checklist.
+- `docs/cctp-v2.md` and `docs/kamino-klend-domain.md` — Ground-specific CCTP V2 and Kamino/KLend primers.
 - `docs/incidents.md` and `docs/audit-report-patterns.md` — evidence mapping.
 - `docs/references.md` — source list and caveats.
 

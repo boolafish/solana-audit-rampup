@@ -1,10 +1,21 @@
 [
   {
+    "id": "wormhole-2022",
     "name": "Wormhole",
     "year": "2022",
+    "chain": "Solana / Ethereum",
+    "category": "bridge",
     "impact": "~120k wETH minted / ~$320M at the time",
+    "summary": "A forged guardian verification path let the attacker mint wrapped ETH on Solana without a valid guardian message.",
     "root": "Guardian signature verification/account validation failure involving instruction sysvar validation path.",
+    "root_cause": "The program accepted a verification-looking instruction/account path without fully binding the sysvar, verifier program, guardian signatures, and payload.",
+    "exploit_path": "Forge the verification precondition, submit a malicious VAA, and mint wrapped assets against an invalid message.",
     "patterns": [
+      "signature-introspection",
+      "sysvar-spoof",
+      "missing-owner"
+    ],
+    "related_patterns": [
       "signature-introspection",
       "sysvar-spoof",
       "missing-owner"
@@ -12,29 +23,338 @@
     "takeaway": "Do not merely check that a verification-looking instruction/account exists; bind sysvar, verifier program, signer, payload, and instruction position.",
     "refs": [
       "https://www.certik.com/resources/blog/wormhole-bridge-exploit-incident-analysis"
+    ],
+    "references": [
+      "https://www.certik.com/resources/blog/wormhole-bridge-exploit-incident-analysis"
     ]
   },
   {
+    "id": "nomad-2022",
+    "name": "Nomad",
+    "year": "2022",
+    "chain": "Ethereum / cross-chain",
+    "category": "bridge",
+    "impact": "~$190M",
+    "summary": "A zero trusted root made arbitrary messages appear valid after an upgrade.",
+    "root": "Bridge replica accepted messages against a zero trusted root.",
+    "root_cause": "Initialization/configuration allowed the committed root of zero to be treated as an acceptable root for message validation.",
+    "exploit_path": "Copy a successful transaction, replace recipient/amount fields, and submit arbitrary messages that validated against the zero root.",
+    "patterns": [
+      "reinit",
+      "relationship-checks",
+      "signature-introspection"
+    ],
+    "related_patterns": [
+      "reinit",
+      "relationship-checks",
+      "signature-introspection"
+    ],
+    "takeaway": "Initialization and trusted-root state are security-critical; test nonzero roots, replay resistance, and invalid-message rejection after upgrades.",
+    "refs": [
+      "https://rekt.news/nomad-rekt/",
+      "https://www.coinbase.com/blog/nomad-bridge-incident-analysis"
+    ],
+    "references": [
+      "https://rekt.news/nomad-rekt/",
+      "https://www.coinbase.com/blog/nomad-bridge-incident-analysis"
+    ]
+  },
+  {
+    "id": "ronin-2022",
+    "name": "Ronin",
+    "year": "2022",
+    "chain": "Ronin / Ethereum",
+    "category": "bridge",
+    "impact": "~$624M",
+    "summary": "An attacker compromised enough validator keys to satisfy the bridge withdrawal quorum.",
+    "root": "Off-chain validator quorum compromise.",
+    "root_cause": "The bridge security boundary depended on a small validator signer set whose keys and allowlist state were compromised.",
+    "exploit_path": "Obtain enough validator signatures, authorize fraudulent withdrawals, and drain bridge reserves.",
+    "patterns": [
+      "upgrade-admin",
+      "governance-timelock",
+      "signature-introspection"
+    ],
+    "related_patterns": [
+      "upgrade-admin",
+      "governance-timelock",
+      "signature-introspection"
+    ],
+    "takeaway": "Bridge signer sets, allowlists, key custody, threshold size, and emergency controls are part of audit scope even when on-chain verification works as designed.",
+    "refs": [
+      "https://rekt.news/ronin-rekt/",
+      "https://www.halborn.com/blog/post/explained-the-ronin-hack-march-2022"
+    ],
+    "references": [
+      "https://rekt.news/ronin-rekt/",
+      "https://www.halborn.com/blog/post/explained-the-ronin-hack-march-2022"
+    ]
+  },
+  {
+    "id": "multichain-2023",
+    "name": "Multichain",
+    "year": "2023",
+    "chain": "Cross-chain",
+    "category": "bridge",
+    "impact": "~$125M+",
+    "summary": "Bridge funds were drained after compromise or loss of control of MPC/key infrastructure.",
+    "root": "MPC/private-key compromise and opaque operational control.",
+    "root_cause": "The asset custody model concentrated security in off-chain MPC infrastructure and administrative access that users and integrators could not independently verify.",
+    "exploit_path": "Use compromised signing/control infrastructure to move assets from bridge-controlled addresses.",
+    "patterns": [
+      "upgrade-admin",
+      "governance-timelock"
+    ],
+    "related_patterns": [
+      "upgrade-admin",
+      "governance-timelock"
+    ],
+    "takeaway": "For bridges, document who can sign, pause, upgrade, rotate keys, or move custody assets; smart-contract tests do not cover opaque MPC control risk.",
+    "refs": [
+      "https://rekt.news/multichain-rekt/",
+      "https://www.certik.com/resources/blog/multichain-collapse-the-private-key-leak-that-drained-usd125m"
+    ],
+    "references": [
+      "https://rekt.news/multichain-rekt/",
+      "https://www.certik.com/resources/blog/multichain-collapse-the-private-key-leak-that-drained-usd125m"
+    ]
+  },
+  {
+    "id": "allbridge-2023",
+    "name": "Allbridge",
+    "year": "2023",
+    "chain": "BNB Chain / cross-chain",
+    "category": "bridge",
+    "impact": "~$570k reported",
+    "summary": "Pool pricing and liquidity accounting were manipulated to drain bridge liquidity.",
+    "root": "Pool invariant and price manipulation in bridge liquidity accounting.",
+    "root_cause": "The bridge's swap/liquidity pool mechanics let an attacker skew prices and withdraw more value than they supplied.",
+    "exploit_path": "Manipulate pool balances/prices through swaps and liquidity operations, then withdraw underpriced assets.",
+    "patterns": [
+      "oracle-validation",
+      "oracle-mev",
+      "math"
+    ],
+    "related_patterns": [
+      "oracle-validation",
+      "oracle-mev",
+      "math"
+    ],
+    "takeaway": "Bridge liquidity pools need invariant tests and manipulation-cost analysis, not only message-authentication checks.",
+    "refs": [
+      "https://rekt.news/allbridge-rekt/",
+      "https://dn.institute/research/cyberattacks/incidents/2023-04-02-allbridge/"
+    ],
+    "references": [
+      "https://rekt.news/allbridge-rekt/",
+      "https://dn.institute/research/cyberattacks/incidents/2023-04-02-allbridge/"
+    ]
+  },
+  {
+    "id": "debridge-solana-2022-class",
+    "name": "deBridge Solana signature-verification-bypass class",
+    "year": "2022",
+    "chain": "Solana / cross-chain",
+    "category": "bridge",
+    "impact": "Class-level audit finding; no canonical loss postmortem",
+    "summary": "Solana bridge programs that rely on instruction introspection can accept forged or unrelated signature-verification instructions if payload, signer, index, and verifier program are not fully bound.",
+    "root": "Signature verification bypass class in Solana bridge/message verification flows.",
+    "root_cause": "Programs may check that a signature-verification instruction exists without proving it verified the exact bridge payload for the exact signer and instruction position.",
+    "exploit_path": "Place a valid-looking Ed25519/secp verification instruction in the transaction, then call the bridge with a different message or account set.",
+    "patterns": [
+      "signature-introspection",
+      "sysvar-spoof",
+      "relationship-checks"
+    ],
+    "related_patterns": [
+      "signature-introspection",
+      "sysvar-spoof",
+      "relationship-checks"
+    ],
+    "takeaway": "When a Solana bridge uses signature instructions, bind verifier program, instruction index, signer, domain, nonce, payload, and all action parameters.",
+    "refs": [
+      "https://debridge.com/support/where-can-i-find-debridges-audit-reports/",
+      "https://neodyme.io/reports/debridge.pdf"
+    ],
+    "references": [
+      "https://debridge.com/support/where-can-i-find-debridges-audit-reports/",
+      "https://neodyme.io/reports/debridge.pdf"
+    ]
+  },
+  {
+    "id": "layerzero-stargate-dvn-config",
+    "name": "LayerZero / Stargate DVN and library configuration",
+    "year": "2023-2024",
+    "chain": "Cross-chain",
+    "category": "bridge",
+    "impact": "Configuration risk class",
+    "summary": "LayerZero-style systems make endpoint libraries, oracle/relayer or DVN sets, confirmations, and per-path configuration part of the security boundary.",
+    "root": "Bridge security depends on message library and DVN/oracle/relayer configuration, not only application contract code.",
+    "root_cause": "Applications can inherit weaker-than-expected trust assumptions if send/receive libraries, required DVNs, optional DVNs, thresholds, or confirmations are misconfigured.",
+    "exploit_path": "Compromise or misconfigure the verification path so a message is accepted under a weaker trust model than the app owner intended.",
+    "patterns": [
+      "upgrade-admin",
+      "governance-timelock",
+      "relationship-checks"
+    ],
+    "related_patterns": [
+      "upgrade-admin",
+      "governance-timelock",
+      "relationship-checks"
+    ],
+    "takeaway": "Audit the per-route message library and verifier configuration as protocol state; pin expected endpoints and document who can change them.",
+    "refs": [
+      "https://docs.layerzero.network/v2/concepts/modular-security/security-stack-dvns",
+      "https://docs.layerzero.network/v2/developers/evm/technical-reference/deployed-contracts"
+    ],
+    "references": [
+      "https://docs.layerzero.network/v2/concepts/modular-security/security-stack-dvns",
+      "https://docs.layerzero.network/v2/developers/evm/technical-reference/deployed-contracts"
+    ]
+  },
+  {
+    "id": "cashio-2022",
     "name": "Cashio",
     "year": "2022",
+    "chain": "Solana",
+    "category": "lending-vault",
     "impact": "~$48M",
+    "summary": "Fake collateral and LP accounts let the attacker mint unbacked CASH.",
     "root": "Incomplete collateral/LP/mint account validation allowed fake account chains and infinite CASH minting.",
+    "root_cause": "The program failed to prove that supplied accounts were the canonical Saber pool, LP mint, token mints, collateral accounts, and related accounts.",
+    "exploit_path": "Provide counterfeit accounts with compatible fields, satisfy shallow checks, mint unbacked CASH, and swap it for real assets.",
     "patterns": [
       "relationship-checks",
       "missing-owner",
-      "token2022"
+      "cpi-substitution"
     ],
-    "takeaway": "Valid accounts must also be the right accounts for the mint/pool/collateral chain; cross-check every relationship.",
+    "related_patterns": [
+      "relationship-checks",
+      "missing-owner",
+      "cpi-substitution"
+    ],
+    "takeaway": "Valid accounts must also be the right accounts for the mint/pool/collateral chain; this is directly relevant to approval-PDA designs and Kamino/KLend CPI account ordering.",
     "refs": [
-      "https://rekt.news/cashio-rekt/"
+      "https://rekt.news/cashio-rekt/",
+      "https://www.sec3.dev/blog/cashioapp-attack-whats-the-vulnerability-and-how-x-ray-detects-it"
+    ],
+    "references": [
+      "https://rekt.news/cashio-rekt/",
+      "https://www.sec3.dev/blog/cashioapp-attack-whats-the-vulnerability-and-how-x-ray-detects-it"
     ]
   },
   {
+    "id": "mango-2022",
+    "name": "Mango Markets",
+    "year": "2022",
+    "chain": "Solana",
+    "category": "lending-vault",
+    "impact": "~$115M bad debt / drained liquidity",
+    "summary": "The attacker manipulated a low-liquidity market and oracle-driven collateral value, then borrowed against inflated collateral.",
+    "root": "Low-liquidity market/oracle/economic manipulation enabled inflated collateral borrowing.",
+    "root_cause": "Risk parameters and oracle design allowed valid protocol state to reflect an economically manipulated MNGO price.",
+    "exploit_path": "Use large positions and liquidity to move the mark/oracle price, inflate account equity, borrow assets, and leave bad debt.",
+    "patterns": [
+      "oracle-validation",
+      "oracle-mev",
+      "math"
+    ],
+    "related_patterns": [
+      "oracle-validation",
+      "oracle-mev",
+      "math"
+    ],
+    "takeaway": "Economic design, oracle source/liquidity, and flash-loan-style composition are audit scope even when every transaction is valid protocol state.",
+    "refs": [
+      "https://rekt.news/mango-markets-rekt/",
+      "https://www.coindesk.com/markets/2022/10/12/how-market-manipulation-led-to-a-100m-exploit-on-solana-defi-exchange-mango"
+    ],
+    "references": [
+      "https://rekt.news/mango-markets-rekt/",
+      "https://www.coindesk.com/markets/2022/10/12/how-market-manipulation-led-to-a-100m-exploit-on-solana-defi-exchange-mango"
+    ]
+  },
+  {
+    "id": "solend-whale-2022",
+    "name": "Solend whale liquidation crisis",
+    "year": "2022",
+    "chain": "Solana",
+    "category": "lending-vault",
+    "impact": "Bad-debt and governance crisis risk; emergency DAO proposal",
+    "summary": "A large borrower's position threatened cascading liquidations, oracle/DEX stress, and bad debt.",
+    "root": "Concentration, liquidation-liquidity, and governance/emergency-action risk.",
+    "root_cause": "Protocol risk parameters allowed a single account to create liquidation pressure larger than available market liquidity could absorb safely.",
+    "exploit_path": "Not a conventional exploit; adverse price movement could force liquidations that move markets and create insolvency.",
+    "patterns": [
+      "oracle-validation",
+      "oracle-mev",
+      "governance-timelock"
+    ],
+    "related_patterns": [
+      "oracle-validation",
+      "oracle-mev",
+      "governance-timelock"
+    ],
+    "takeaway": "Lending audits should include concentration limits, liquidation liquidity, emergency governance powers, and whether privileged intervention can bypass normal controls.",
+    "refs": [
+      "https://www.coindesk.com/tech/2022/06/19/solend-protocol-moves-to-take-over-whale-account-to-prevent-defi-implosion/",
+      "https://www.coindesk.com/tech/2022/06/20/solend-invalidates-first-governance-vote-plans-new-one/"
+    ],
+    "references": [
+      "https://www.coindesk.com/tech/2022/06/19/solend-protocol-moves-to-take-over-whale-account-to-prevent-defi-implosion/",
+      "https://www.coindesk.com/tech/2022/06/20/solend-invalidates-first-governance-vote-plans-new-one/"
+    ]
+  },
+  {
+    "id": "nirvana-2022",
+    "name": "Nirvana Finance",
+    "year": "2022",
+    "chain": "Solana",
+    "category": "lending-vault",
+    "impact": "~$3.5M attacker profit, larger protocol damage",
+    "summary": "Flash-loan liquidity was used to manipulate protocol pricing and drain value.",
+    "root": "Flash-loan-assisted pricing/economic manipulation of protocol mechanism.",
+    "root_cause": "The protocol's pricing mechanism could be moved atomically with borrowed liquidity and then traded against for profit.",
+    "exploit_path": "Borrow large liquidity, skew the price mechanism, buy/redeem or swap against the distorted price, repay the loan, and keep the spread.",
+    "patterns": [
+      "oracle-validation",
+      "oracle-mev",
+      "math"
+    ],
+    "related_patterns": [
+      "oracle-validation",
+      "oracle-mev",
+      "math"
+    ],
+    "takeaway": "Check AMM/pricing invariants, manipulation cost, circuit breakers, and atomic composition assumptions.",
+    "refs": [
+      "https://www.certik.com/resources/blog/nirvana-finance-incident-analysis",
+      "https://rekt.news/nirvana-rekt/",
+      "https://www.theblock.co/post/159975/solana-stablecoin-nirvana-sinks-90-amid-3-5-million-flash-loan-exploit"
+    ],
+    "references": [
+      "https://www.certik.com/resources/blog/nirvana-finance-incident-analysis",
+      "https://rekt.news/nirvana-rekt/",
+      "https://www.theblock.co/post/159975/solana-stablecoin-nirvana-sinks-90-amid-3-5-million-flash-loan-exploit"
+    ]
+  },
+  {
+    "id": "crema-2022",
     "name": "Crema Finance",
     "year": "2022",
+    "chain": "Solana",
+    "category": "dex",
     "impact": "~$8.8M reported",
+    "summary": "Fake tick/price accounts enabled a fee-claim path to account for liquidity incorrectly.",
     "root": "Fake tick/price account and faulty owner/account validation in concentrated liquidity fee-claim path.",
+    "root_cause": "A sibling instruction path failed to validate account ownership and relationships for tick/price data.",
+    "exploit_path": "Provide fake accounts to the vulnerable path, cause incorrect fee accounting, and withdraw value.",
     "patterns": [
+      "missing-owner",
+      "relationship-checks",
+      "native-parser-hazards"
+    ],
+    "related_patterns": [
       "missing-owner",
       "relationship-checks",
       "native-parser-hazards"
@@ -44,61 +364,62 @@
       "https://rekt.news/crema-finance-rekt/",
       "https://www.certik.com/resources/blog/crema-finance-exploit",
       "https://www.halborn.com/blog/post/explained-the-crema-finance-hack-july-2022"
-    ]
-  },
-  {
-    "name": "Mango Markets",
-    "year": "2022",
-    "impact": "~$115M bad debt / drained liquidity",
-    "root": "Low-liquidity market/oracle/economic manipulation enabled inflated collateral borrowing.",
-    "patterns": [
-      "oracle-validation",
-      "oracle-mev"
     ],
-    "takeaway": "Economic design and liquidity-aware risk parameters are audit scope, not just code correctness.",
-    "refs": [
-      "https://rekt.news/mango-markets-rekt/"
+    "references": [
+      "https://rekt.news/crema-finance-rekt/",
+      "https://www.certik.com/resources/blog/crema-finance-exploit",
+      "https://www.halborn.com/blog/post/explained-the-crema-finance-hack-july-2022"
     ]
   },
   {
-    "name": "Nirvana Finance",
-    "year": "2022",
-    "impact": "~$3.5M attacker profit, larger protocol damage",
-    "root": "Flash-loan-assisted pricing/economic manipulation of protocol mechanism.",
-    "patterns": [
-      "oracle-validation",
-      "oracle-mev"
-    ],
-    "takeaway": "Check AMM/pricing invariants, manipulation cost, circuit breakers, and atomic composition assumptions.",
-    "refs": [
-      "https://www.certik.com/resources/blog/nirvana-finance-incident-analysis",
-      "https://rekt.news/nirvana-rekt/"
-    ]
-  },
-  {
+    "id": "raydium-2022",
     "name": "Raydium",
     "year": "2022",
+    "chain": "Solana",
+    "category": "dex",
     "impact": "~$4M+ reported",
+    "summary": "Compromised authority keys were used to drain liquidity pools.",
     "root": "Compromised admin/owner authority used to drain pools.",
+    "root_cause": "Privileged key compromise exposed pool-draining authority.",
+    "exploit_path": "Use compromised authority to call privileged drain paths against pools.",
     "patterns": [
+      "upgrade-admin",
+      "governance-timelock"
+    ],
+    "related_patterns": [
       "upgrade-admin",
       "governance-timelock"
     ],
     "takeaway": "Key management, authority blast radius, and emergency/admin powers are part of security review.",
     "refs": [
       "https://www.certik.com/skynet-report/raydium-protocol-exploit-incident-analysis"
+    ],
+    "references": [
+      "https://www.certik.com/skynet-report/raydium-protocol-exploit-incident-analysis"
     ]
   },
   {
+    "id": "slope-wallet-2022",
     "name": "Slope wallet incident",
     "year": "2022",
+    "chain": "Solana",
+    "category": "wallet",
     "impact": "~9,231 wallets affected",
+    "summary": "Wallet/application key handling failure exposed user keys.",
     "root": "Wallet/application key handling failure, not a Solana program bug.",
+    "root_cause": "Private key material was mishandled by wallet infrastructure.",
+    "exploit_path": "Use exposed key material to sign unauthorized transfers from affected wallets.",
     "patterns": [
+      "upgrade-admin"
+    ],
+    "related_patterns": [
       "upgrade-admin"
     ],
     "takeaway": "Classify ecosystem losses correctly; wallet/key custody incidents may be out of smart-contract scope but affect threat model.",
     "refs": [
+      "https://solana.com/news/8-2-2022-application-wallet-incident"
+    ],
+    "references": [
       "https://solana.com/news/8-2-2022-application-wallet-incident"
     ]
   }
