@@ -76,3 +76,49 @@ Mapped pattern IDs: math, native-parser-hazards
 References:
 - https://github.com/solana-labs/security-audits/blob/master/spl/OtterSecAccountCompressionAudit-2022-12-03.pdf
 
+## ChainSecurity CCTP V2 Audit — Circle CCTP V2
+
+Common findings / themes:
+- V1/V2 attester separation and trust assumptions
+- Fast-message finality and reorg-risk considerations
+- Administrative controls and protocol configuration as bridge security boundary
+
+Mapped pattern IDs: signature-introspection, governance-timelock, relationship-checks
+
+References:
+- https://reports.chainsecurity.com/Circle/ChainSecurity_Circle_CCTPV2_Audit.pdf
+
+## OtterSec EVM CCTP V2 Audit — Circle CCTP V2
+
+Common findings / themes:
+- Specification and implementation consistency across message formats
+- Exact V2 interface review instead of reusing V1 integration assumptions
+
+Mapped pattern IDs: relationship-checks, native-parser-hazards
+
+References:
+- https://6778953.fs1.hubspotusercontent-na1.net/hubfs/6778953/PDFs/public_evm_cctp_audit_final%20%282%29.pdf
+
+## OpenZeppelin Sponsored CCTP Deposits from Solana Audit — Solana CCTP Periphery
+
+Common findings / themes:
+- Nonce PDA and rent-sponsorship lifecycle review
+- CCTP CPI boundaries and account validation
+
+Mapped pattern IDs: pda-bump, cpi-substitution, remaining-accounts
+
+References:
+- https://www.openzeppelin.com/news/sponsored-cctp-deposits-from-solana-audit
+
+## Certora Kamino Lending Security Report — Kamino Lending / KLend
+
+Common findings / themes:
+- Exchange-rate precision loss can affect redeem accounting
+- Small-number rounding and reserve accounting require dedicated tests
+
+Mapped pattern IDs: math, oracle-validation
+
+References:
+- https://www.certora.com/reports/kamino-lending-security-report
+- https://www.certora.com/blog/securing-kamino-lending
+
