@@ -114,8 +114,8 @@ Audience: experienced Ethereum/Solidity auditor reviewing Solana programs. Empha
 
 ### 13. Account close, revival, and stale data
 - **Why different:** Closing is usually implemented by transferring lamports and assigning/zeroing data. Historically/CTF-style, if data/discriminator remains and lamports are later restored in the same transaction, a “closed” account can be revived or reused unexpectedly.
-- **Bad pattern:** Drain lamports but leave owner/data/discriminator as valid program state; later instruction in same transaction re-funds account and uses stale state.
-- **Mitigation:** Prefer Anchor `close = recipient` and verify exact behavior for the Anchor version in scope; for manual closes, clear/invalidate data, refund lamports intentionally, and ensure no subsequent same-transaction logic trusts the account.
+- **Bad pattern:** Drain lamports but leave owner/data/discriminator as valid program state; later instruction in same transaction re-funds account and uses stale state. Another variant branches on `lamports == 0` or an exact rent balance even though anyone can `system::transfer` lamports into a PDA.
+- **Mitigation:** Prefer Anchor `close = recipient` and verify exact behavior for the Anchor version in scope; for manual closes, clear/invalidate data, refund lamports intentionally, and ensure no subsequent same-transaction logic trusts the account. Older defensive patterns use a closed-account sentinel such as `CLOSED_ACCOUNT_DISCRIMINATOR` so a re-funded account still fails type checks.
 - **References:**
   - Closing accounts: https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/closing-accounts.md
   - Anchor `close` constraint: https://www.anchor-lang.com/docs/references/account-constraints
@@ -148,6 +148,7 @@ Audience: experienced Ethereum/Solidity auditor reviewing Solana programs. Empha
 - **Why different:** Every transaction has compute-unit limits and account-size limits; there is no unbounded loop over contract storage, but attackers can supply large vectors/accounts or trigger expensive CPIs until compute exhaustion.
 - **Bad pattern:** Iterate over user-provided remaining accounts or vector length without bounds; O(n²) validation; repeated PDA derivations/CPIs; requiring many writable “hot” accounts that serialize all users.
 - **Mitigation:** Bound input lengths; price fees by work; avoid unbounded `remaining_accounts`; cap CPIs; use efficient data structures; split work into deterministic chunks; minimize global writable accounts.
+- **Useful constants:** Solana transactions have a 1.4M compute-unit hard cap by default budget rules and commonly start at 200k CU per instruction unless a Compute Budget instruction raises the limit. CPI stack depth is limited to 4 nested invocations beyond the transaction entrypoint. Legacy transactions are capped at 1232 bytes, so long router account lists often require v0 transactions with Address Lookup Tables.
 - **References:**
   - Solana fees/compute budget docs: https://solana.com/docs/core/fees
   - Transactions docs: https://solana.com/docs/core/transactions
@@ -171,11 +172,19 @@ Audience: experienced Ethereum/Solidity auditor reviewing Solana programs. Empha
 ### 20. SPL Token / Token-2022 account validation gaps
 - **Why different:** Token balances/authority are data inside SPL Token accounts owned by token programs. Native SOL lamports and SPL tokens have different rules; Token-2022 can add extensions/transfer hooks/confidential features.
 - **Bad pattern:** Accept any token account as a vault; check only token account owner authority but not mint; assume ATA address without deriving; ignore Token-2022 extensions or transfer fees in accounting.
-- **Mitigation:** Check token program ID, mint, token account authority, ATA derivation when required, decimals, extensions/fees/hooks; use Anchor SPL constraints and test both SPL Token and Token-2022 if supported.
+- **Mitigation:** Check token program ID, mint, token account authority, ATA derivation when required, decimals, extensions/fees/hooks; use Anchor SPL constraints and test both SPL Token and Token-2022 if supported. Routers need explicit policy for transfer hooks that require extra CPI accounts, transfer fees where amount in differs from amount out, permanent delegates that can move funds, interest-bearing mints where UI amounts drift from raw amounts, and confidential/non-transferable extensions that break normal transfer assumptions. ATA derivation must thread the intended token program with `get_associated_token_address_with_program_id`, not assume classic SPL Token.
 - **References:**
   - Anchor SPL constraints: https://www.anchor-lang.com/docs/references/account-constraints
   - Solana token program docs: https://spl.solana.com/token
   - Token-2022 docs: https://spl.solana.com/token-2022
+
+### 21. Address Lookup Tables as a trust boundary
+- **Why different:** Versioned transactions resolve Address Lookup Table entries before the program executes. A program that stores or accepts an ALT pubkey is only storing metadata unless it validates the ALT account and its state.
+- **Bad pattern:** Store an ALT pubkey in config and later assume routes using that ALT resolve to approved vaults/reserves without checking the table owner, authority, deactivation slot, or resolved account keys.
+- **Mitigation:** If an ALT account is passed to the program, require the Address Lookup Table program as owner, parse table state, verify authority/deactivation status, and bind expected indexes to expected pubkeys. Remember that the executing program normally sees resolved account keys, not the ALT itself; validate the actual accounts used by the instruction.
+- **References:**
+  - Address Lookup Tables: https://solana.com/docs/advanced/lookup-tables
+  - Transactions docs: https://solana.com/docs/core/transactions
 
 ## CTF-style audit checklist
 

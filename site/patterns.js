@@ -674,6 +674,188 @@ window.PATTERNS = [
       "https://solana.com/docs/core/accounts",
       "https://neodyme.io/en/blog/solana_common_pitfalls/"
     ]
+  },
+  {
+    "id": "anchor-0.28-deltas",
+    "category": "Anchor",
+    "severity": "High",
+    "title": "Anchor 0.28 behavior differs from newer tutorials",
+    "solidity": "Like auditing an older proxy/library version while reading docs for the latest release.",
+    "difference": "Anchor code generation, feature flags, lamport helpers, and payer mutability behavior are version-sensitive. A program pinned to 0.28 may need checks that newer examples hide or express differently.",
+    "bad": "Assume latest Anchor examples apply: use `init_if_needed` without checking features, omit payer `mut`, mutate lamports through raw `AccountInfo` without writable/rent/borrow checks, or trust typed accounts after raw reads.",
+    "good": "Pin `anchor-lang`/`anchor-spl` from `Cargo.lock` and features from `Cargo.toml`; compare manual contexts against generated 0.28 validation; require mutable payers; validate direct lamport mutation; reload or re-check after CPI/raw reads.",
+    "checks": [
+      "Is the exact Anchor version and feature set known?",
+      "Do payer accounts that fund init/realloc require `mut`?",
+      "Are raw `AccountInfo` reads and lamport mutations protected by fresh checks?"
+    ],
+    "examples": {
+      "native_bad": "N/A: this is Anchor framework behavior.",
+      "native_good": "N/A: this is Anchor framework behavior.",
+      "anchor_bad": "`pub payer: Signer<'info>` used for `init` rent payment in 0.28-style code.",
+      "anchor_good": "`#[account(mut)] pub payer: Signer<'info>` plus lockfile/feature review."
+    },
+    "refs": [
+      "docs/anchor-0.28-deltas.md",
+      "https://github.com/coral-xyz/anchor/blob/master/CHANGELOG.md",
+      "https://docs.rs/anchor-lang/0.28.0/anchor_lang/"
+    ]
+  },
+  {
+    "id": "manual-try-accounts",
+    "category": "Anchor",
+    "severity": "Critical",
+    "title": "Hand-rolled `try_accounts` missing derived checks",
+    "solidity": "Like replacing a modifier stack with manual decoding and forgetting one authorization or type check.",
+    "difference": "Manual `Accounts` implementations consume caller-supplied account slots directly. Anchor constraints only exist if the hand-written parser recreates them.",
+    "bad": "Call `next_account_info` for each slot and return a context without checking signer, writable, owner, expected PDA, discriminator, relationships, aliasing, or exact count before `remaining_accounts`.",
+    "good": "Build a per-slot validation table and enforce every role: signer, writable, owner/program, address/PDA with canonical bump, discriminator-first decode, relationship checks, alias rejection, and exact fixed-account count.",
+    "checks": [
+      "Does each slot reproduce the checks a derived context would emit?",
+      "Can one account key satisfy two roles with different assumptions?",
+      "Can an extra account shift the boundary into `remaining_accounts`?"
+    ],
+    "examples": {
+      "native_bad": "`let config = next_account_info(iter)?; Config::try_from_slice(&config.data.borrow())?;`",
+      "native_good": "Check owner, len, discriminator, signer/writable flags, PDA, and relationships before decode.",
+      "anchor_bad": "Manual `try_accounts` returns `UncheckedAccount` slots after presence-only parsing.",
+      "anchor_good": "Manual parser validates each slot and rejects duplicates/extras before constructing the context."
+    },
+    "refs": [
+      "docs/manual-try-accounts-checklist.md",
+      "https://www.anchor-lang.com/docs/references/account-constraints",
+      "https://docs.rs/anchor-lang/latest/anchor_lang/derive.Accounts.html"
+    ]
+  },
+  {
+    "id": "remaining-accounts-trust",
+    "category": "CPI",
+    "severity": "Critical",
+    "title": "Forwarded `remaining_accounts` as CPI trust boundary",
+    "solidity": "Like forwarding an unvalidated address array to another protocol while your contract signs or accounts based on the result.",
+    "difference": "`remaining_accounts` are raw `AccountInfo`s outside Anchor validation. Routers that forward them into Kamino/KLend-style CPIs must validate the callee account schema themselves.",
+    "bad": "Map `ctx.remaining_accounts` directly into CPI `AccountMeta`s, preserving caller order and writable flags, without checking length, duplicate keys, callee IDL order, or overlap with validated context accounts.",
+    "good": "Parse the slice into named callee roles; enforce exact length/order, owner/program IDs, writable/signer policy, subset/disjointness against validated accounts, event-authority/instructions-sysvar slots, and downstream relationships before CPI.",
+    "checks": [
+      "Is the fixed-account and remaining-account boundary explicit?",
+      "Are writable upgrades and signer expectations justified per callee slot?",
+      "Was the callee IDL/source read for ordering and special accounts?"
+    ],
+    "examples": {
+      "native_bad": "`invoke(&ix, remaining_accounts)?;` where metas are caller-provided order.",
+      "native_good": "Convert `remaining_accounts` into a typed callee schema, validate it, then emit metas from validated roles.",
+      "anchor_bad": "`ctx.remaining_accounts.iter().map(|a| AccountMeta::new(a.key(), a.is_writable))`.",
+      "anchor_good": "`KaminoDepositAccounts::parse(ctx.remaining_accounts)?.validate_against(&ctx.accounts)?`."
+    },
+    "refs": [
+      "docs/remaining-accounts-cpi-trust.md",
+      "https://solana.com/docs/core/cpi",
+      "https://www.anchor-lang.com/docs/references/account-constraints"
+    ]
+  },
+  {
+    "id": "raw-byte-pda-decoding",
+    "category": "Native / Advanced",
+    "severity": "High",
+    "title": "Raw-byte PDA decoding and offset drift",
+    "solidity": "Like hand-decoding storage slots with hard-coded offsets and no type/version check.",
+    "difference": "Anchor/Borsh account bytes include discriminators, field order, enum/option tags, and version-sensitive layouts. Raw offsets bypass typed account validation.",
+    "bad": "Read `data[8..40]` or `data[73]` from an `UncheckedAccount` without checking owner, discriminator, length, version, or that the callee layout is pinned.",
+    "good": "Prefer typed deserialization. If slicing is unavoidable, check owner, length, discriminator, version, named offsets, and fixtures from the pinned program version before interpreting fields.",
+    "checks": [
+      "Are all raw offsets named and tested against fixtures?",
+      "Does the parser check discriminator before field reads?",
+      "Could `Option`, enum, or field-order changes shift the target field?"
+    ],
+    "examples": {
+      "native_bad": "`let market = Pubkey::new_from_array(data[8..40].try_into()?);`",
+      "native_good": "Check owner, len, discriminator, version, then deserialize or read named constant ranges.",
+      "anchor_bad": "`UncheckedAccount` plus `data[73] != 0` status check.",
+      "anchor_good": "Use `Account<T>` or an isolated parser with owner/discriminator/version checks and layout tests."
+    },
+    "refs": [
+      "docs/raw-byte-pda-decoding.md",
+      "https://borsh.io/",
+      "https://docs.rs/anchor-lang/latest/anchor_lang/trait.AccountDeserialize.html"
+    ]
+  },
+  {
+    "id": "find-program-address-cu-cost",
+    "category": "PDA",
+    "severity": "Medium",
+    "title": "`find_program_address` compute cost and bump caching",
+    "solidity": "Roughly like recomputing expensive CREATE2 searches in hot paths while trusting user-provided salts.",
+    "difference": "`find_program_address` searches bump values until it finds an off-curve address. Repeating that search in loops or CPI-heavy paths burns compute, but accepting user-supplied bumps can create non-canonical PDA bugs.",
+    "bad": "Call `find_program_address` repeatedly for the same PDA inside loops, then switch to a client-supplied bump to save compute.",
+    "good": "Use canonical `find_program_address` at creation, store the bump in trusted account state, and later re-derive with the stored bump while still verifying the PDA address and state owner/type.",
+    "checks": [
+      "Are PDA derivations inside bounded paths?",
+      "Are stored bumps read from trusted state, not instruction args?",
+      "Is the PDA address rechecked when cached bumps are used?"
+    ],
+    "examples": {
+      "native_bad": "`create_program_address(&[seed, &[args.bump]], program_id)` with `args.bump` from the client.",
+      "native_good": "Store canonical bump at init; later re-derive with stored bump and require the expected key.",
+      "anchor_bad": "Use `bump = args.bump` from instruction data on an unchecked account.",
+      "anchor_good": "Use `#[account(seeds=[...], bump = state.bump)]` where `state` is validated."
+    },
+    "refs": [
+      "https://solana.com/docs/core/pda",
+      "https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/bump-seed-canonicalization.md",
+      "https://solana.com/docs/core/fees"
+    ]
+  },
+  {
+    "id": "seed-prefix-collision",
+    "category": "PDA",
+    "severity": "High",
+    "title": "Seed-prefix collision and PDA type confusion",
+    "solidity": "Like two storage namespaces sharing the same slot prefix, letting one object type stand in for another.",
+    "difference": "PDAs are untyped addresses. If two account roles share seed structure or weak prefixes under the same program, raw/unchecked code can accept the wrong PDA type.",
+    "bad": "Use seeds like `[b\"vault\", user]` for multiple account types, then accept `UncheckedAccount` and only check the address prefix or owner.",
+    "good": "Use unique static domain prefixes per account type and action, include the resource keys that scope authority, and verify discriminator/type after PDA derivation.",
+    "checks": [
+      "Can two PDA account types share a seed tuple shape?",
+      "Are static prefixes unique and documented?",
+      "Does unchecked PDA validation also prove discriminator/type?"
+    ],
+    "examples": {
+      "native_bad": "`PDA([b\"config\", user])` used for both user config and approval state.",
+      "native_good": "`PDA([b\"user_config\", user])` and `PDA([b\"approval\", user, mint])`, then check type tags.",
+      "anchor_bad": "`UncheckedAccount` constrained only by seeds shared with another account type.",
+      "anchor_good": "`Account<'info, Approval>` with unique seeds and discriminator validation."
+    },
+    "refs": [
+      "https://solana.com/docs/core/pda",
+      "https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/pda-sharing.md",
+      "https://github.com/coral-xyz/sealevel-attacks"
+    ]
+  },
+  {
+    "id": "instructions-sysvar-introspection",
+    "category": "Account Validation",
+    "severity": "High",
+    "title": "Instructions sysvar introspection mistakes",
+    "solidity": "Like checking that some signature or router call exists in calldata history without binding it to this action.",
+    "difference": "The Instructions sysvar exposes transaction instructions. Programs that enforce direct calls, signature-verifier placement, or anti-proxy rules must bind the current index and exact neighboring instructions.",
+    "bad": "Accept any `Sysvar1nstructions1111111111111111111111111`-like account or scan for a matching instruction somewhere in the transaction without checking current index, program ID, accounts, and data.",
+    "good": "Require the exact Instructions sysvar address, call `load_current_index_checked`, inspect the expected previous/current instruction with `load_instruction_at_checked`, and bind program ID, accounts, data, signer, nonce, and action domain.",
+    "checks": [
+      "Is the sysvar account exact-address checked?",
+      "Is the inspected instruction position relative to current index?",
+      "Are program ID, account keys, data, nonce, and domain bound?"
+    ],
+    "examples": {
+      "native_bad": "Scan all instructions for an Ed25519 verifier and accept the first match.",
+      "native_good": "Use `load_current_index_checked`; require verifier immediately before this instruction and parse exact payload.",
+      "anchor_bad": "Unchecked `ix_sysvar: AccountInfo<'info>` and handler scans loosely.",
+      "anchor_good": "`#[account(address = sysvar::instructions::ID)]` plus exact index and payload checks."
+    },
+    "refs": [
+      "https://docs.rs/solana-program/latest/solana_program/sysvar/instructions/index.html",
+      "https://docs.rs/solana-program/latest/solana_program/sysvar/index.html",
+      "https://www.certik.com/resources/blog/wormhole-bridge-exploit-incident-analysis"
+    ]
   }
 ];
 window.INCIDENTS = [
