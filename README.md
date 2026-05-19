@@ -5,7 +5,7 @@ A compact, evidence-backed ramp-up site for auditors who already know Ethereum/S
 ## What is inside
 
 - `site/index.html` — polished static website with learning path, account-validation matrix, filters, incident mapping, and audit-report findings.
-- `data/patterns.json` — structured vulnerability knowledge base (30 patterns).
+- `data/patterns.json` — structured vulnerability knowledge base (37 patterns).
 - `data/incidents.json` — real Solana incidents mapped to patterns.
 - `data/audit-findings.json` — public audit report findings mapped to patterns.
 - `docs/core-solana-security.md` — Solana-specific audit notes.

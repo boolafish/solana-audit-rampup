@@ -172,6 +172,38 @@ pub state: Account<'info, State>;
 If using `init_if_needed`, enforce an initialized/version flag and never reset authority/config after first initialization.
 Reference: docs.rs Anchor `init_if_needed` warning: feature is behind a flag and must be protected against reinitialization; sealevel-attacks `4-initialization`.
 
+#### Open init / first-caller-becomes-admin
+
+Singleton PDAs such as registry, config, or bridge-state accounts need an authorization policy even on the first write. If `initialize` only proves the PDA address and then stores `ctx.accounts.authority.key()`, the first successful caller becomes admin. Wormhole's 2022 `initialize` bug is the canonical example: an initialization path without the intended guard can reset or seize privileged state.
+
+Bad:
+```rust
+#[account(init, payer = payer, seeds = [b"config"], bump, space = 8 + Config::LEN)]
+pub config: Account<'info, Config>;
+pub payer: Signer<'info>;
+
+pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
+    ctx.accounts.config.admin = ctx.accounts.payer.key();
+    Ok(())
+}
+```
+
+Good:
+```rust
+#[account(address = EXPECTED_ADMIN)]
+pub admin: Signer<'info>;
+#[account(init, payer = admin, seeds = [b"config"], bump, space = 8 + Config::LEN)]
+pub config: Account<'info, Config>;
+
+pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
+    ctx.accounts.config.admin = ctx.accounts.admin.key();
+    ctx.accounts.config.version = 1;
+    Ok(())
+}
+```
+
+For upgradeable programs, also verify deployment and upgrade-authority ceremony: an otherwise correct initializer is still weak if anyone can front-run it before the intended admin transaction.
+
 ### 11. `realloc`
 Bad:
 ```rust
