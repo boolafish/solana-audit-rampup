@@ -15,6 +15,30 @@ The trust assumptions, stated conservatively:
 
 Do not describe a Squads-governed protocol as "decentralized" or "trustless" without first reading the actual member set, threshold, and time lock on-chain.
 
+```mermaid
+flowchart TD
+    subgraph Squads["Squads multisig"]
+      MC["Multisig config account<br/>members, threshold, time_lock<br/>stale_transaction_index"]
+      VP["Vault PDA<br/>derived from multisig key + vault_index<br/>holds SOL / tokens / authority"]
+      TP["Transaction account<br/>proposed instructions"]
+      PP["Proposal account<br/>voting state"]
+    end
+    M1["Member A&nbsp;(Propose + Vote + Execute)"]
+    M2["Member B&nbsp;(Vote only)"]
+    PROT["Target protocol<br/>admin = vault PDA"]
+    M1 -->|"creates"| TP
+    M1 -->|"approves"| PP
+    M2 -->|"approves"| PP
+    PP -->|"threshold reached"| MC
+    MC -->|"invoke_signed as"| VP
+    VP -->|"executes privileged CPI into"| PROT
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class VP g;
+    class MC b;
+```
+<span class="figcap">The vault PDA (not the config account) is the signer that the target protocol must trust. These are two different addresses.</span>
+
 ## EVM analog
 
 For an auditor coming from Gnosis Safe, the mapping is close but not exact.
@@ -52,6 +76,21 @@ The exact seeds and layouts are IDL- and version-specific; verify them. Conceptu
 
 Note the split between the *transaction* account (what is proposed) and the *proposal* account (who voted). Re-execution and staleness bugs live in the relationship between these, the multisig's `transaction_index`/`stale_transaction_index`, and the member set at execution time.
 
+```mermaid
+flowchart LR
+    MS["Multisig config account<br/>• members + permission masks<br/>• threshold<br/>• time_lock<br/>• transaction_index<br/>• stale_transaction_index"]
+    TX["Transaction account<br/>• proposed instructions<br/>• target vault_index<br/>• created_at tx_index"]
+    PR["Proposal account<br/>• status Active/Approved/<br/>&nbsp;&nbsp;Rejected/Executed/Cancelled<br/>• approvers set<br/>• rejecters set"]
+    VT["Vault PDA<br/>• actual asset holder<br/>• invoke_signed signer"]
+    MS -->|"seeds: multisig key + vault_index"| VT
+    MS -->|"transaction_index ties"| TX
+    TX -->|"same index"| PR
+    PR -->|"Approved + time_lock elapsed"| VT
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class VT g;
+```
+<span class="figcap">Transaction account (what) and proposal account (who voted) are separate. Staleness bugs sit in the gap between them and the live member set.</span>
+
 ## Instructions that matter
 
 Names are illustrative of the v4 model; confirm exact names and args against the IDL.
@@ -82,12 +121,138 @@ flowchart LR
 This is where an EVM auditor's Safe intuition needs Solana-specific adjustment. For each item, the question is "what does the Squads program guarantee, and what must my target program independently verify?"
 
 - **Threshold correctness and unique-approver counting.** The execute path must require at least `threshold` *distinct, currently-valid* approvers. Watch for: an approver counted twice, an approval from a member who was removed after voting, or a threshold stored separately from the live member count (threshold greater than `n` is a permanent lockout; threshold of 1 or 0 is effectively a single-key wallet). Map this to Safe's "signatures must be from current owners, sorted, no duplicates" check.
+
+```rust
+// ❌ BAD (illustrative): approval counted by incrementing a u8 — does not
+//    track *who* approved, so the same member can call approve twice.
+pub fn approve(ctx: Context<Approve>) -> Result<()> {
+    let proposal = &mut ctx.accounts.proposal;
+    proposal.approval_count += 1; // no dedup, no membership check
+    Ok(())
+}
+
+// ✅ GOOD (illustrative): record the approver's key; reject if already present
+//    or if the signer is no longer a current member with Vote permission.
+pub fn approve(ctx: Context<Approve>) -> Result<()> {
+    let multisig = &ctx.accounts.multisig;
+    let proposal = &mut ctx.accounts.proposal;
+    let voter = ctx.accounts.member.key();
+
+    // 1. Must still be a current member with Vote permission.
+    require!(
+        multisig.members.iter().any(|m| m.key == voter && m.permissions.has_vote()),
+        MultisigError::NotAuthorizedMember
+    );
+    // 2. Must not have already voted.
+    require!(
+        !proposal.approved.contains(&voter),
+        MultisigError::AlreadyApproved
+    );
+    proposal.approved.push(voter);
+    Ok(())
+}
+```
 - **Proposal staleness and re-execution.** A proposal approved under one member set should not remain executable after a config change that should have invalidated it. Squads tracks a `stale_transaction_index`: config changes bump it so that proposals created before the change are stale. Verify that (a) config changes actually advance the staleness watermark, (b) execution rejects stale proposals, and (c) an executed proposal cannot be executed a second time (status transitions to Executed and is checked). This is the analog of nonce/replay protection in a Safe.
+
+```mermaid
+flowchart TD
+    P["Proposal created at tx_index = 5<br/>reaches Approved"]
+    CC["Config change executed<br/>stale_transaction_index bumped to 6"]
+    EX{{"tx_index 5 < stale_transaction_index 6 ?"}}
+    BAD["Execute proceeds ❌<br/>old member set approved it,<br/>new member set never agreed"]
+    GOOD["Execution rejected ✅<br/>proposal is stale"]
+    P --> CC --> EX
+    EX -->|"staleness not checked"| BAD
+    EX -->|"staleness enforced"| GOOD
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class BAD b;
+    class GOOD g;
+```
+
+```rust
+// ❌ BAD (illustrative): executes without staleness or re-execution check.
+pub fn execute_vault_tx(ctx: Context<ExecuteVaultTx>) -> Result<()> {
+    let proposal = &ctx.accounts.proposal;
+    require!(proposal.status == ProposalStatus::Approved, MultisigError::NotApproved);
+    // Missing: stale check, re-execution guard, time_lock check
+    run_cpi_instructions(&ctx)?;
+    Ok(())
+}
+
+// ✅ GOOD (illustrative): enforce staleness, time_lock, and one-shot execution.
+pub fn execute_vault_tx(ctx: Context<ExecuteVaultTx>) -> Result<()> {
+    let multisig = &ctx.accounts.multisig;
+    let proposal = &mut ctx.accounts.proposal;
+    // 1. Must be Approved, not already Executed/Cancelled/Rejected.
+    require!(proposal.status == ProposalStatus::Approved, MultisigError::NotApproved);
+    // 2. Must not be stale (created before the last config change).
+    require!(
+        proposal.transaction_index >= multisig.stale_transaction_index,
+        MultisigError::StaleProposal
+    );
+    // 3. time_lock must have elapsed since approval timestamp.
+    let now = Clock::get()?.unix_timestamp;
+    require!(
+        now >= proposal.approved_at + multisig.time_lock as i64,
+        MultisigError::TimeLockNotElapsed
+    );
+    // 4. Mark Executed before running CPI to prevent re-entry / replay.
+    proposal.status = ProposalStatus::Executed;
+    run_cpi_instructions(&ctx)?;
+    Ok(())
+}
+```
 - **Proposal integrity vs execution integrity.** The instructions executed must be exactly the instructions that were proposed and approved — same target program, same accounts, same data. A bug where the executor reads instruction data or account metas from a source other than the approved transaction account is a confused-deputy hole: members approve one thing and a different thing executes. This maps to verifying the `data`/`to`/`value` in `execTransaction` matches what was signed.
 - **Vault PDA derivation.** Confirm the vault PDA is derived from the intended multisig and vault index with the canonical bump, and that execution signs only for that PDA. A derivation that under-scopes seeds (or accepts a caller-supplied bump) risks one multisig signing for another's vault. See `core-solana-security.md` items 6 and 7 (PDA bump canonicalization, PDA sharing).
+
+```rust
+// ❌ BAD (illustrative): caller supplies the bump; any bump that produces a
+//    valid curve-off address is accepted — potentially a different vault's PDA.
+pub fn execute(ctx: Context<Execute>, vault_bump: u8) -> Result<()> {
+    let vault_pda = Pubkey::create_program_address(
+        &[b"vault", ctx.accounts.multisig.key().as_ref(), &[vault_bump]],
+        ctx.program_id,
+    )?;
+    // Signs for whatever PDA the caller engineered with their bump.
+    invoke_signed(&ix, &accounts, &[&[b"vault", ctx.accounts.multisig.key().as_ref(), &[vault_bump]]])?;
+    Ok(())
+}
+
+// ✅ GOOD (illustrative): derive the canonical bump; include the vault_index so
+//    multisig A cannot sign for multisig B's vault.
+pub fn execute(ctx: Context<Execute>) -> Result<()> {
+    let multisig_key = ctx.accounts.multisig.key();
+    let vault_index   = ctx.accounts.transaction.vault_index;
+    let (expected_vault, bump) = Pubkey::find_program_address(
+        &[b"vault", multisig_key.as_ref(), &[vault_index]],
+        ctx.program_id,
+    );
+    require_keys_eq!(ctx.accounts.vault.key(), expected_vault, MultisigError::WrongVault);
+    invoke_signed(
+        &ix, &accounts,
+        &[&[b"vault", multisig_key.as_ref(), &[vault_index], &[bump]]],
+    )?;
+    Ok(())
+}
+```
 - **Time-lock bypass.** If a `time_lock` is configured, execution must enforce that the lock has elapsed since approval — not since proposal creation, and not bypassable via an alternate execute path or a spending limit. A `time_lock` that resets or is read from an attacker-influenced clock source is a bypass.
 - **Member-set changes invalidating prior approvals.** Adding or removing members, or changing the threshold, must not leave a pending proposal executable on terms the current member set never agreed to. This is the staleness invariant from the angle of "who is allowed to vote right now."
 - **Config-change gating.** The instructions that change members/threshold/time lock are the crown jewels. Verify they require the same (or stronger) authority as a normal execution and cannot be reached by a lower-privileged path. If an external `config_authority` is set, that single account can rewrite the member set — confirm whether that is intended, and what it is.
+
+```mermaid
+flowchart TD
+    CA{{"config_authority == multisig itself ?"}}
+    SELF["Self-governed ✅<br/>any member/threshold change<br/>must go through a full proposal"]
+    EXT["External single key ❌<br/>one private key can add members,<br/>lower threshold to 1,<br/>then drain vault unilaterally"]
+    CA -->|"config_authority = multisig"| SELF
+    CA -->|"config_authority = hot wallet"| EXT
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class EXT b;
+    class SELF g;
+```
+<span class="figcap">An external config_authority collapses the m-of-n guarantee to 1-of-1 for the party holding that key.</span>
 - **Spending limits.** Where configured, these let a member move bounded funds without the full threshold. Review the per-period reset logic, the mint/amount bounds, which member(s) hold the limit, and whether the limit can be created or raised without a full proposal.
 - **Rent and closing stale proposals.** Old transaction/proposal accounts hold rent. Closing them refunds lamports; verify the refund recipient is intended and that closing a proposal cannot be used to revive or re-execute it (see `core-solana-security.md` item 13, close/revival).
 - **Upgrade authority of the Squads program itself.** Record it. A protocol that trusts a Squads vault as admin transitively trusts whoever can upgrade the Squads program.
@@ -97,9 +262,68 @@ This is where an EVM auditor's Safe intuition needs Solana-specific adjustment. 
 The common case: the protocol you are auditing is *not* Squads, but it names a Squads multisig as its admin, upgrade authority, treasury, or fee authority. The protocol almost never CPIs *into* Squads; rather, Squads CPIs *into* the protocol's privileged instructions as the vault PDA. Your job is to verify the governance claim is real.
 
 - **Verify the admin pubkey is the vault PDA, not the config account or a member key.** Read the protocol's stored admin/authority field. Independently derive the multisig's vault PDA (multisig key + vault index + canonical bump) and confirm they match. A protocol that stores the multisig *config* account, or one member's key, as its admin is not actually governed by the multisig in the way the docs claim.
+
+```mermaid
+flowchart LR
+    DOC["Protocol docs claim:<br/>&lsquo;governed by Squads multisig&rsquo;"]
+    CFG["config.admin == multisig config key?"]
+    VLT["config.admin == vault PDA?"]
+    WRONG["Config account is NOT the signer ❌<br/>any threshold-driven CPI signs<br/>as the vault PDA, not the config key"]
+    OK["Vault PDA is the real authority ✅<br/>Squads invoke_signed produces this signer"]
+    DOC --> CFG -->|"stored config key"| WRONG
+    DOC --> VLT -->|"stored vault PDA"| OK
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class WRONG b;
+    class OK g;
+```
+
+```rust
+// ❌ BAD (illustrative — target protocol governance check):
+//    stores the multisig config account key as admin; Squads never signs as this.
+#[account(mut, has_one = admin)]
+pub config: Account<'info, ProtocolConfig>,
+pub admin: Signer<'info>, // must be vault PDA, not config account
+
+// If config.admin was set to the Squads multisig *config* key, no Squads-driven
+// CPI will ever satisfy `has_one = admin` because the vault PDA is a different address.
+
+// ✅ GOOD (illustrative — target protocol governance check):
+//    the stored authority must equal the vault PDA; derive and compare off-chain.
+//
+// During initialization, set:
+//   protocol_config.admin = vault_pda; // the PDA Squads invoke_signs as
+//
+// In the privileged instruction:
+#[account(mut, has_one = admin @ ProtocolError::Unauthorized)]
+pub config: Account<'info, ProtocolConfig>,
+pub admin: Signer<'info>, // only satisfied when Squads CPIs with invoke_signed(vault PDA seeds)
+```
 - **Read the live member set and threshold.** Fetch the multisig account and decode it against the pinned IDL. Confirm `n` and `threshold` are sane (threshold > 1 for a real multisig; threshold ≤ live member count; no unexpected members; permission masks as expected). A "5-of-7 multisig" that is actually 1-of-7 on-chain is a finding.
 - **Confirm a `time_lock` exists if the protocol's risk model assumes a reaction window.** If the threat model relies on monitors catching a malicious upgrade before it lands, `time_lock = 0` defeats it. State the actual value.
 - **Trace the full upgrade-authority chain.** If the claim is "the program is governed by a multisig," verify the program's ProgramData upgrade authority *is* the vault PDA, not a leftover deploy key. Then verify the multisig's own `config_authority` is the multisig itself (self-governed) and not an external single key. The chain is only as strong as its weakest link, which is frequently a stray upgrade key or an external config authority.
+
+```mermaid
+flowchart TD
+    PROT["Target protocol program"]
+    PD["ProgramData account<br/>upgrade_authority = ?"]
+    VP["Vault PDA ✅"]
+    DK["Leftover deploy key ❌"]
+    CA{{"multisig.config_authority ?"}}
+    SELF2["multisig itself ✅<br/>changes are proposal-gated"]
+    EXT2["external hot wallet ❌<br/>1-of-1 can rewrite members"]
+    PROT --> PD
+    PD -->|"upgrade_authority"| VP
+    PD -->|"upgrade_authority"| DK
+    VP --> CA
+    CA -->|"= multisig"| SELF2
+    CA -->|"= hot key"| EXT2
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class DK b; class EXT2 b;
+    class VP g; class SELF2 g;
+```
+<span class="figcap">Walk every link. A stray deploy key or external config_authority anywhere in the chain breaks the governance claim.</span>
 - **Check for spending limits or other bypass paths** that let a subset move funds or change config below the stated threshold.
 - **Pin the Squads program id and version** used by this deployment and record it as a dependency in your report, with its own upgrade authority noted.
 

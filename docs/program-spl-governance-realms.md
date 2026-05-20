@@ -17,6 +17,22 @@ The trust assumptions, stated conservatively:
 
 Do not describe a Realms-governed protocol as "decentralized" without reading the actual mints, their distribution, the thresholds/quorum, the time lock, and any voter-weight plugin on-chain.
 
+```mermaid
+flowchart TD
+    CM["Community mint<br/>(governance token)"] --> R["Realm<br/>(DAO root)"]
+    CoM["Council mint<br/>(optional)"] --> R
+    Plugin["Voter-weight plugin<br/>(e.g. VSR — optional)"] -->|"computes weight for"| R
+    GovProg["SPL Governance program<br/>(upgradeable — trust assumption)"] -->|"owns &amp; enforces"| R
+    R --> GA["Governance account<br/>(thresholds, quorum,<br/>voting time, hold-up)"]
+    GA --> PDA["Governance authority PDA<br/>(derived from governance account)<br/>← actual signer for privileged CPIs"]
+    PDA -->|"recorded as admin / upgrade authority of"| Target["Governed protocol<br/>(program, treasury, mint…)"]
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class Plugin b;
+    class PDA g;
+```
+<span class="figcap">Trust flows upward: whoever controls enough voting weight controls the governance authority PDA, which controls the protocol. The council mint and the governance program's own upgrade authority are additional trust roots.</span>
+
 ## EVM analog
 
 For an auditor coming from Compound Governor / Governor Bravo + Timelock, the mapping is close:
@@ -62,6 +78,24 @@ Exact seeds and layouts are version-specific; verify against the IDL/source. Con
 
 Note the split between the *proposal* (what is being decided) and the *proposal instruction* accounts (what executes). Re-execution and integrity bugs live in that relationship, plus the proposal's state transitions.
 
+```mermaid
+flowchart LR
+    R["Realm"] --> GA["Governance account<br/>(voting config)"]
+    R --> TOR["Token-owner record<br/>(deposited weight per holder)"]
+    R --> VWR["Voter-weight record<br/>(plugin-produced, optional)"]
+    GA --> AuthPDA["Governance authority PDA<br/>← signs privileged CPIs"]
+    GA --> Prop["Proposal account<br/>(state machine)"]
+    Prop --> PropIx["Proposal instruction account(s)<br/>(what actually executes)"]
+    Prop --> VR["Vote record<br/>(per voter, prevents double-vote)"]
+    TOR -.->|"weight consumed by"| VR
+    VWR -.->|"weight consulted by"| VR
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class AuthPDA g;
+    class PropIx b;
+```
+<span class="figcap">The governance authority PDA (green) is the privileged signer; the proposal instruction accounts (red border) are the execution payload — auditor focus: do these match what was voted on?</span>
+
 ## Instructions that matter
 
 Names are illustrative; confirm against the IDL/source for the pinned version.
@@ -94,12 +128,101 @@ flowchart TD
 For each item the question is "what does SPL Governance guarantee, and what must the audited protocol (or the integration) independently verify?"
 
 - **Who really controls the governance authority PDA.** Mirror the Squads discipline: the protocol's stored admin/upgrade authority must be the **governance authority PDA**, correctly derived from the governance account with the canonical bump — not the realm, not the governance account itself, and not a council member's key. A protocol that records the wrong pubkey is not actually DAO-governed in the way its docs claim. **Cross-link: `program-squads-multisig.md`** ("verify the admin pubkey IS the governance PDA"); the check is identical in spirit. See `core-solana-security.md` items 6–7 (PDA bump canonicalization, PDA sharing).
+
+```mermaid
+flowchart TD
+    Proto["Protocol's stored admin field"] --> q{{"equals governance authority PDA ?"}}
+    q -->|"matches correctly derived PDA ✅"| governed["Truly DAO-governed: a proposal must pass to touch this protocol"]
+    q -->|"equals the Realm account ❌"| wrong1["Wrong account — no actual enforcement"]
+    q -->|"equals the Governance account ❌"| wrong2["Wrong account — governance account ≠ PDA"]
+    q -->|"equals a council member key ❌"| wrong3["Single key — effectively a personal admin"]
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class governed g;
+    class wrong1 b; class wrong2 b; class wrong3 b;
+```
+
+```rust
+// ❌ BAD: protocol stores the Realm address as its admin — not the PDA.
+// Anyone who can update the Realm config could bypass the intended governance.
+pub fn set_fee(ctx: Context<SetFee>) -> Result<()> {
+    require_keys_eq!(
+        ctx.accounts.authority.key(),
+        ctx.accounts.config.admin,   // admin = realm pubkey — WRONG
+        MyError::NotAdmin
+    );
+    // ...
+}
+
+// ✅ GOOD: verify the signer IS the governance authority PDA, derived correctly.
+// In Anchor, the governance PDA is the instruction signer CPI'd by SPL Governance.
+#[derive(Accounts)]
+pub struct SetFee<'info> {
+    #[account(
+        mut,
+        // governance_authority is the PDA that SPL Governance signs with;
+        // it must match what the protocol recorded at initialization.
+        has_one = governance_authority @ MyError::NotGovernance
+    )]
+    pub config: Account<'info, Config>,
+    /// CHECK: signed by the SPL Governance program via invoke_signed
+    pub governance_authority: Signer<'info>, // illustrative
+}
+```
 - **Proposal execution integrity.** The instruction(s) executed must be exactly the instruction(s) that were attached and voted on — same program, accounts, and data. A path where execution reads instruction data or account metas from a source other than the approved proposal-instruction account is a confused-deputy hole: voters approve one thing, a different thing executes. This is the analog of verifying the Timelock executes the queued calldata hash, and maps to `governance-timelock` ("the exact proposed instruction bound to approval").
+
+```mermaid
+sequenceDiagram
+    actor V as Voters
+    participant P as Proposal account
+    participant PI as Proposal instruction account
+    participant G as SPL Governance program
+    participant T as Target program
+
+    V->>P: cast votes on Draft instruction
+    Note over P,PI: Instruction data/accounts locked in PI at sign-off
+    P->>P: Succeeded + hold-up elapsed
+    G->>PI: read stored instruction (program, accounts, data)
+    alt execution reads from PI ✅
+        G->>T: invoke_signed using governance PDA — exactly what was voted on
+    else execution reads from caller-supplied accounts ❌
+        Note over G: Confused deputy: different program/data executes<br/>under the governance PDA authority
+    end
+```
 - **Quorum / threshold / vote-tipping correctness.** Confirm the approval threshold and quorum are computed against the right supply (community vs council, and the *deposited/eligible* supply, not raw mint supply if they differ), and that **vote-tipping** (early finalization) cannot declare success before the threshold is genuinely met or before enough of the electorate could react. A threshold set too low, a quorum of zero, or a tipping rule that finalizes on a thin tally is a finding.
 - **Voter-weight plugin trust.** If a plugin (e.g. VSR vote-escrow) computes weight, that plugin is trusted code: verify its program ID is the expected one, that the governance actually reads weight from the plugin's record (not a bypassable raw balance), and review the plugin's own admin/upgrade authority and weight math (lock multipliers, decay). A malicious or buggy plugin can mint voting power. This is `governance-timelock` extended into a third-party dependency.
+
+```mermaid
+flowchart TD
+    Dep["Holder deposits governance tokens"] --> TOR["Token-owner record<br/>(raw deposited balance)"]
+    TOR -->|"no plugin: weight = raw balance"| VoteW["Voting weight used"]
+    TOR -->|"plugin configured"| PluginProg["Voter-weight plugin program<br/>(e.g. VSR — separate trusted code)"]
+    PluginProg --> VWR["Voter-weight record<br/>(plugin writes this)"]
+    VWR -->|"governance reads weight from here"| VoteW
+    Bypass["Bypass: governance reads TOR raw balance<br/>instead of plugin VWR ❌"] --> VoteW
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class Bypass b;
+    class VWR g;
+```
+<span class="figcap">When a plugin is configured, the voter-weight record (not the raw token-owner-record balance) is the authoritative weight. A governance that falls back to the raw balance bypasses lock multipliers and can be exploited to over-count votes.</span>
 - **Council-mint centralization.** A council mint is a second voting class that frequently holds outsized or overriding power (and veto). Read its supply and distribution. A "DAO" whose council mint is a single wallet is a single-key admin; report it as such rather than as decentralized governance.
 - **Time-lock bypass.** If a hold-up time is configured, execution must enforce that it has elapsed since the proposal succeeded — not bypassable via an alternate execute path, a council fast-track, or a misconfigured per-governance value. A hold-up of zero defeats any monitor-reaction threat model; state the actual value.
 - **Re-execution and proposal state.** A succeeded proposal's instructions must execute at most once; the state machine must mark them executed and reject re-execution. Verify state transitions (Voting → Succeeded → Executing → Completed) are enforced and that a cancelled/defeated/vetoed proposal cannot be executed. This is the replay/`eta`-consumed analog (`close-revival` for the account-lifecycle angle).
+
+```mermaid
+flowchart LR
+    Succ["Succeeded + hold-up elapsed"] --> Ex{{"execute_transaction called"}}
+    Ex -->|"state = Executing / Completed ✅"| Done["Marked Completed — re-call reverts"]
+    Ex -->|"state not updated ❌"| Replay["Re-execute fires governance PDA CPI again → replay attack"]
+    Defeat["Defeated / Cancelled / Vetoed"] --> ExBad{{"execute_transaction called"}}
+    ExBad -->|"state not checked ❌"| RunAny["Defeated proposal executes → no voter approved this"]
+    ExBad -->|"state enforced ✅"| Reject["Rejected — only Succeeded proposals may execute"]
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class Replay b; class RunAny b;
+    class Done g; class Reject g;
+```
 - **Vote-weight integrity around deposits/withdrawals.** Confirm a holder cannot withdraw governing tokens while a vote they cast is still counted (double-use of weight), nor inflate weight by re-depositing across proposals in a way the records do not track.
 - **Upgrade authority of the SPL Governance program (and any plugin).** Record both. A protocol governed by a realm transitively trusts whoever can upgrade the governance program and any voter-weight plugin.
 
@@ -108,6 +231,36 @@ For each item the question is "what does SPL Governance guarantee, and what must
 The common case: the protocol you are auditing is *not* SPL Governance, but it names a realm/governance as its admin or upgrade authority. The protocol almost never CPIs *into* governance; rather, governance CPIs *into* the protocol's privileged instructions as the governance PDA. Your job is to verify the governance claim is real and sound.
 
 - **Confirm the claimed admin/upgrade authority resolves to the realm's governance authority PDA.** Read the protocol's stored admin field (and its ProgramData upgrade authority). Independently derive the governance authority PDA from the in-scope governance account (canonical bump) and confirm they match. A protocol storing the realm, the governance account, or a council key as admin is not governed the way it claims. (Same discipline as `program-squads-multisig.md`'s vault-PDA check.)
+
+```rust
+// Illustrative off-chain verification (e.g. in a Rust test / audit script).
+
+// ❌ BAD: auditor trusts the docs claim; never verifies on-chain.
+// "The protocol says it's governed by the DAO, so it must be."
+
+// ✅ GOOD: derive the expected governance authority PDA and compare.
+// Seeds are version-specific; confirm against the pinned IDL/source.
+let governance_account: Pubkey = /* read from on-chain governance account pubkey */;
+let spl_governance_program_id: Pubkey = /* read from the realm's account owner */;
+
+// The governance authority PDA is derived from the governance account address.
+// Exact seeds vary by SPL Governance version — illustrative:
+let (expected_authority_pda, _bump) = Pubkey::find_program_address(
+    &[b"native-treasury", governance_account.as_ref()], // illustrative seeds
+    &spl_governance_program_id,
+);
+
+let protocol_admin: Pubkey = /* read config.admin from the on-chain protocol state */;
+
+assert_eq!(
+    protocol_admin,
+    expected_authority_pda,
+    "Protocol admin does not match the governance authority PDA — not DAO-governed as claimed"
+);
+
+// Also check the ProgramData upgrade authority for upgradeable programs:
+// program_data.upgrade_authority_address == Some(expected_authority_pda)
+```
 - **Verify sane thresholds and quorum.** Fetch the governance account and decode it against the pinned IDL. Confirm the approval threshold and quorum are non-trivial and computed against the correct mint/supply, and check vote-tipping rules. A "DAO" governance with a 1% threshold or zero quorum is a finding.
 - **Confirm a time lock is present if the risk model assumes a reaction window.** If the threat model relies on monitors catching a malicious upgrade before it lands, a hold-up of zero defeats it. State the actual value.
 - **Verify the voter-weight source is trusted.** If a plugin computes weight, pin its program ID and version, confirm the governance reads from it, and record the plugin's own admin/upgrade authority. If no plugin, confirm weight derives from deposited governing tokens as expected.

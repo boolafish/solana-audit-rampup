@@ -23,6 +23,21 @@ An EVM auditor must drop two assumptions:
 
 As with Pyth, the economic layer sits on top: a valid, fresh Switchboard result for a thin asset can still be moved by a well-capitalized attacker, the Mango Markets pattern (`oracle-mev`).
 
+```mermaid
+flowchart TD
+    atk["Attacker creates a Switchboard feed&nbsp;&nbsp;(permissionless — anyone can do this)"]
+    atk --> cfg["Configures it with 1 low-quality source&nbsp;&nbsp;no variance bound, attacker-chosen price"]
+    cfg --> subst["Passes attacker feed account into the tx&nbsp;&nbsp;where the protocol expects its vetted feed"]
+    subst --> chk{{"feed.key() == config.expected_feed ?"}}
+    chk -->|"not checked ❌"| drain["Program reads attacker-controlled price → exploit"]
+    chk -->|"pinned ✅"| reject["Key mismatch → rejected before any price read"]
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class drain b;
+    class reject g;
+```
+<span class="figcap">Permissionless creation means owner-check alone is not enough. The exact feed pubkey must be pinned to vetted config.</span>
+
 ## EVM analog
 
 The closest analog is a Chainlink aggregator read where a careful auditor checks `updatedAt` for staleness and the answer for sanity. The Solana-specific twists:
@@ -56,12 +71,51 @@ V2 model:
 
 In both models, because anyone can create a feed/aggregator, the consuming program must bind the **exact feed pubkey** (not merely "owned by Switchboard") and should be aware that the feed's configuration (sources, min responses, variance) is attacker-chosen unless the protocol vetted that specific feed.
 
+```mermaid
+flowchart LR
+    subgraph OD["On-Demand model"]
+        direction TB
+        pfa["Pull feed account&nbsp;&nbsp;owner = On-Demand program&nbsp;&nbsp;pubkey pinned to config"]
+        queue["Queue / oracle accounts&nbsp;&nbsp;produce signed results"]
+        queue -->|"relayer posts result"| pfa
+    end
+    subgraph V2["V2 aggregator model"]
+        direction TB
+        agg["AggregatorAccountData&nbsp;&nbsp;owner = V2 program&nbsp;&nbsp;pubkey pinned to config"]
+        oracles["Oracle operators&nbsp;&nbsp;update latest_confirmed_round"]
+        oracles -->|"push round on-chain"| agg
+    end
+    consumer["Consumer program"] -->|"reads + validates"| pfa
+    consumer -->|"reads + validates"| agg
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class pfa g;
+    class agg g;
+```
+<span class="figcap">Both models: identity (exact pubkey), owner, freshness, and corroboration checks live in the consumer program.</span>
+
 ## Instructions that matter
 
 You are usually auditing the **consumer**. The Switchboard-side surface in the transaction:
 
 - **Update / pull result (On-Demand)**: an instruction (via the SDK) that verifies a signed oracle result and writes the feed account. May be a separate earlier instruction or a CPI. Check who controls and pays for the update and that its lifecycle cannot be abused.
 - **Read result**: in the consumer, deserialize-and-validate. On-Demand SDKs expose helpers to read the current value with a staleness bound; V2 reads `latest_confirmed_round` and applies checks manually. Either way the consumer owns the identity, freshness, corroboration, and economic checks.
+
+```mermaid
+sequenceDiagram
+    participant R as Relayer / consumer
+    participant OD as On-Demand program
+    participant Feed as Pull feed account
+    participant CP as Consumer program
+    R->>OD: submit_result (signed oracle data)
+    OD->>Feed: write latest value + timestamp + num_responses
+    Note over Feed: feed account updated in same tx
+    R->>CP: call consume_price(feed)
+    CP->>Feed: read value, timestamp, num_responses, std_dev
+    CP->>CP: check owner, exact pubkey, freshness,<br/>corroboration, variance, scale
+    CP-->>R: proceed or reject
+```
+<span class="figcap">On-Demand: the result is posted and read in the same transaction. Treat the posted result as a self-supplied input; all validation lives in the consumer.</span>
 
 ## Security-relevant surface
 
@@ -76,6 +130,89 @@ This is the crux. For every value the target consumes from Switchboard, confirm 
 - **Decimals / scale normalization.** Switchboard results are commonly represented as a scaled decimal (e.g. an `SwitchboardDecimal` with `mantissa` and `scale`, or a fixed-point representation depending on SDK/version). The consumer must normalize the value to the protocol's fixed-point convention and reconcile with the token's decimals. A scale/sign mistake is a classic precision/`math` bug that can massively mis-value collateral; use `u128`/checked math.
 - **Positive / sane value.** Reject non-positive and obviously out-of-range values; combine with variance and (where available) a sanity band or circuit breaker.
 - **Manipulation cost / liquidity.** A fresh, well-corroborated Switchboard result for a low-liquidity asset can still be pushed, the Mango Markets class: valid protocol state reflecting an economically manipulated price. Variance checks help (manipulation often widens operator spread), but the durable mitigations are conservative risk parameters, caps, and TWAP/circuit-breaker designs. Flag any integration that values collateral off a thin feed without economic guardrails.
+
+```mermaid
+flowchart TD
+    read["Consumer reads feed account"] --> q1{{"owner == expected Switchboard program ?"}}
+    q1 -->|"no ❌"| fake["Fake / wrong-version feed → reject"]
+    q1 -->|"yes"| q2{{"feed.key() == config.expected_feed ?"}}
+    q2 -->|"no ❌"| subst2["Attacker-created feed → reject"]
+    q2 -->|"yes"| q3{{"age &le; max_price_age_secs ?"}}
+    q3 -->|"no ❌"| stale["Stale result → reject"]
+    q3 -->|"yes"| q4{{"num_responses &ge; min_responses ?"}}
+    q4 -->|"no ❌"| under["Under-corroborated → reject"]
+    q4 -->|"yes"| q5{{"std_dev / value &le; max_dev_bps ?"}}
+    q5 -->|"no ❌"| wide["Deviation too wide → reject"]
+    q5 -->|"yes"| q6{{"value &gt; 0 ?"}}
+    q6 -->|"no ❌"| nonpos["Non-positive price → reject"]
+    q6 -->|"yes"| use["Normalize mantissa/scale → use price ✅"]
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class fake,subst2,stale,under,wide,nonpos b;
+    class use g;
+```
+<span class="figcap">Every arrow to a reject node is a missing-check finding. Skipping any layer is exploitable — severity scales with how the price drives collateral or liquidation.</span>
+
+```rust
+// ❌ BAD: reads the feed value with no identity, staleness, corroboration,
+//         or variance checks — attacker can substitute any Switchboard feed
+//         or pass a stale/manipulated result.
+pub fn update_collateral_value(ctx: Context<UpdateCollateral>) -> Result<()> {
+    let feed = &ctx.accounts.price_feed; // arbitrary AccountInfo, unchecked
+    // No owner check, no pubkey pin, no freshness, no min responses, no deviation
+    let data = feed.try_borrow_data()?;
+    let price: i64 = i64::from_le_bytes(data[0..8].try_into().unwrap());
+    ctx.accounts.position.collateral_value = price as u64; // no sign/scale check
+    Ok(())
+}
+
+// ✅ GOOD: full validation chain before the value drives any state.
+pub fn update_collateral_value(ctx: Context<UpdateCollateral>) -> Result<()> {
+    let feed = &ctx.accounts.price_feed;
+
+    // 1. Owner: must be the expected Switchboard program (On-Demand or V2).
+    require_keys_eq!(
+        *feed.owner, SWITCHBOARD_ONDEMAND_PROGRAM_ID, // version-matched constant
+        ErrorCode::WrongOracleProgram
+    );
+    // 2. Identity: exact pubkey pinned to validated config — permissionless
+    //    creation makes this the critical check.
+    require_keys_eq!(
+        feed.key(), ctx.accounts.config.expected_price_feed,
+        ErrorCode::WrongFeed
+    );
+
+    let result = load_pull_feed(feed)?; // version-specific SDK helper (illustrative)
+    let clock = Clock::get()?;
+
+    // 3. Freshness.
+    require!(
+        clock.unix_timestamp.saturating_sub(result.result_ts)
+            <= ctx.accounts.config.max_price_age_secs as i64,
+        ErrorCode::StaleOracle
+    );
+    // 4. Corroboration.
+    require!(
+        result.num_responses >= ctx.accounts.config.min_responses,
+        ErrorCode::TooFewOracles
+    );
+    // 5. Variance / deviation (Switchboard's analog to Pyth confidence).
+    require!(
+        (result.std_dev as u128).saturating_mul(10_000u128)
+            <= (result.value as u128).saturating_mul(
+                ctx.accounts.config.max_dev_bps as u128
+            ),
+        ErrorCode::OracleDeviationTooWide
+    );
+    // 6. Sanity.
+    require!(result.value > 0, ErrorCode::BadOraclePrice);
+
+    // 7. Normalize mantissa/scale to protocol fixed-point using u128/checked math.
+    let normalized = normalize_switchboard_decimal(result.value, result.scale)?;
+    ctx.accounts.position.collateral_value = normalized;
+    Ok(())
+}
+```
 
 ## What to check when the target reads the feed
 
@@ -126,6 +263,41 @@ require!(
     ErrorCode::StaleOracle
 );
 // bound variance vs value; reject non-positive; normalize SwitchboardDecimal scale.
+```
+
+The Anchor account-constraint approach for pinning the feed pubkey:
+
+```rust
+// ❌ BAD: feed account is accepted as any AccountInfo with no pubkey pin or
+//         owner verification — attacker-created feed passes freely.
+#[derive(Accounts)]
+pub struct ConsumeFeed<'info> {
+    pub market: Account<'info, Market>,
+    /// CHECK: "we trust the caller" — no pin, no owner check
+    pub aggregator: UncheckedAccount<'info>,
+    pub clock: Sysvar<'info, Clock>,
+}
+
+// ✅ GOOD: Anchor pins the exact pubkey stored in `market.price_feed` and
+//          checks the V2 program owns the account before deserialization.
+#[derive(Accounts)]
+pub struct ConsumeFeed<'info> {
+    pub market: Account<'info, Market>,
+
+    // `address = market.price_feed` — fails if caller supplies any other key.
+    // `owner = SWITCHBOARD_V2_PROGRAM_ID` — fails if not the real V2 program.
+    // (illustrative; exact type wrapper is SDK-version-specific)
+    #[account(
+        address = market.price_feed @ ErrorCode::WrongFeed,
+        owner = SWITCHBOARD_V2_PROGRAM_ID @ ErrorCode::WrongOracleProgram,
+    )]
+    pub aggregator: AccountLoader<'info, AggregatorAccountData>,
+
+    // Read Clock from its canonical sysvar address — never from a caller account.
+    pub clock: Sysvar<'info, Clock>,
+}
+// Then in the handler: load aggregator, check num_success, timestamp, deviation,
+// reject non-positive, normalize SwitchboardDecimal with u128/checked math.
 ```
 
 ## Audit checklist

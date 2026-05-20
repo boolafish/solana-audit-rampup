@@ -11,6 +11,22 @@ This doc covers both Pyth integration models you may encounter in scope:
 
 Pyth aggregates first-party publisher prices into an aggregate price plus a confidence interval. The trust model is: you trust the Pyth publisher set and aggregation, plus (for the pull model) the Wormhole guardian set that attests the update. The on-chain program you are auditing does **not** re-derive the price; it consumes whatever the price account contains, after (hopefully) validating identity and quality fields.
 
+```mermaid
+flowchart TD
+    PUB["First-party publishers&nbsp;&nbsp;(e.g. market makers)"] -->|"price quotes"| PAGG["Pyth aggregation&nbsp;&nbsp;(off-chain / Pythnet)"]
+    PAGG -->|"push model: continuously written"| PACC["On-chain price account&nbsp;&nbsp;owner = Pyth oracle program"]
+    PAGG -->|"pull model: Wormhole-attested VAA"| WH["Wormhole guardian set&nbsp;&nbsp;attests the update"]
+    WH -->|"posted by consumer / relayer"| UPD["Price update account&nbsp;&nbsp;(PriceUpdateV2)&nbsp;&nbsp;owner = receiver program"]
+    PACC -->|"consumer reads"| CON["Consumer program&nbsp;&nbsp;must validate: identity · freshness · conf · expo"]
+    UPD -->|"consumer reads same tx"| CON
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class UPD g;
+    class PACC g;
+    class CON b;
+```
+<span class="figcap">Trust flows from publishers through Pyth aggregation to an on-chain account. The consumer sits at the end and must validate every quality field — the runtime gives it no help.</span>
+
 Two assumptions an EVM auditor must drop:
 
 - The price account is not a fixed protocol address baked into bytecode. It is supplied per-transaction and must be pinned to config or derived deterministically. A wrong but well-formed Pyth account is an account-substitution bug, not just a misconfiguration.
@@ -26,6 +42,27 @@ The Solana-specific twist:
 
 - In Solidity the aggregator address is fixed in your contract and an attacker cannot swap it. On Solana the price account is passed in the transaction and **must be validated like any other account** (owner, address/feed id). Substitution is the headline difference.
 - The pull model has no direct EVM equivalent: the consumer posts the price update itself within the transaction. Treat the posted update like a self-supplied input that must be verified (verification level, feed id, age) before you trust it, similar to verifying a signed message rather than reading trusted storage.
+
+```mermaid
+flowchart LR
+    subgraph EVM["EVM / Chainlink"]
+      direction TB
+      SOL_C["Solidity contract"] -->|"fixed address baked in bytecode"| CL["Chainlink aggregator&nbsp;&nbsp;(fixed, tamper-proof)"]
+      CL -->|"latestRoundData()"| ANS["answer + updatedAt"]
+    end
+    subgraph SOLANA["Solana / Pyth"]
+      direction TB
+      CONS["Consumer program"] -->|"caller supplies account"| PRICE["price account / update account&nbsp;&nbsp;must be validated"]
+      PRICE -->|"deserialize"| DATA["price · conf · expo · publish_time"]
+    end
+    ATK["Attacker"] -.->|"swap in fake price account ❌"| PRICE
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class ATK b;
+    class PRICE b;
+    class CL g;
+```
+<span class="figcap">On EVM the feed address is immutable bytecode — substitution is impossible. On Solana every account is caller-supplied; without an identity + owner check an attacker can pass a fabricated price account.</span>
 
 ## Program IDs and versions
 
@@ -52,6 +89,27 @@ Pull model (`pyth-solana-receiver`):
 
 Because the price update account in the pull model can be created by anyone (a relayer posts it), the consuming program must not trust it merely because it is owned by the receiver program. It must check the feed id matches the expected symbol and that the update is recent enough.
 
+```mermaid
+flowchart TD
+    subgraph PUSH["Legacy push model"]
+      direction LR
+      PPROG["Pyth oracle program&nbsp;&nbsp;(owner)"] -->|"writes"| PACC2["Price account&nbsp;&nbsp;address pinned in config&nbsp;&nbsp;price · conf · expo · status · publish_time"]
+      PACC2 -->|"consumer reads"| PUSHCON["Consumer&nbsp;&nbsp;checks: owner · address · status · staleness · conf · expo"]
+    end
+    subgraph PULL["Pull model (pyth-solana-receiver)"]
+      direction LR
+      VAA["Wormhole-attested VAA&nbsp;&nbsp;(signed by guardian set)"] -->|"relayer / consumer posts"| RECV["Receiver program&nbsp;&nbsp;(owner)"]
+      RECV -->|"writes"| PUPACC["Price update account&nbsp;&nbsp;(PriceUpdateV2)&nbsp;&nbsp;feed_id · verification_level&nbsp;&nbsp;price · conf · expo · publish_time"]
+      PUPACC -->|"consumer reads same tx"| PULLCON["Consumer&nbsp;&nbsp;checks: owner · feed_id · verif level · staleness · conf · expo"]
+    end
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class PUSHCON g;
+    class PULLCON g;
+    class PUPACC b;
+```
+<span class="figcap">Both models land on the same consumer responsibility: validate identity, ownership, freshness, confidence, and exponent. The pull model adds feed-id binding and verification-level checks because the update account is posted by an untrusted party.</span>
+
 ## Instructions that matter
 
 You are usually auditing the **consumer**, not Pyth itself, so the relevant "instruction" is whatever handler in the target reads the price. The Pyth-side surface that shows up in the transaction:
@@ -73,6 +131,46 @@ This is the crux. For every price the target consumes, confirm all of the follow
 - **Positive / sane price.** Reject non-positive prices and obviously out-of-range values; combine with confidence and (where available) a sanity band or circuit breaker.
 - **Manipulation cost / liquidity.** Even a fresh, in-status, tight-confidence price can be pushed for a low-liquidity asset. This is the Mango Markets class: valid protocol state reflecting an economically manipulated price. Confidence helps (a manipulated thin market often widens `conf`), but the durable mitigations are risk parameters, conservative LTVs, caps, and TWAP/circuit-breaker designs. Flag any integration that values collateral off a thin feed without economic guardrails.
 
+```rust
+// ❌ BAD: reads price with none of the required checks.
+// price_update is an unchecked AccountInfo — the caller chose it.
+pub fn price_collateral_bad(ctx: Context<PriceCollateralBad>) -> Result<()> {
+    // No owner check, no feed-id binding, no staleness, no confidence check,
+    // no status check, and exponent is ignored (assumes fixed scale).
+    let data = ctx.accounts.price_update.try_borrow_data()?;
+    // ... raw deserialization of price bytes ...
+    // price used directly as USD value — massively wrong on any of the above.
+    Ok(())
+}
+
+// ✅ GOOD: pull-model read with all required checks (illustrative; exact API
+// is version-specific — verify against pinned pyth-solana-receiver-sdk).
+pub fn price_collateral_good(ctx: Context<PriceCollateralGood>) -> Result<()> {
+    let clock = Clock::get()?; // safe sysvar read — not from an arbitrary account
+    let feed_id = get_feed_id_from_hex(EXPECTED_SOL_USD_FEED_ID)?; // pin symbol
+
+    // get_price_no_older_than: checks owner = receiver program, feed_id matches,
+    // publish_time within max_age. Returns error if any check fails.
+    let price = ctx.accounts.price_update
+        .get_price_no_older_than(&clock, MAX_PRICE_AGE_SECS, &feed_id)?;
+
+    // ① positive price
+    require!(price.price > 0, ErrorCode::BadOraclePrice);
+
+    // ② confidence: reject if band too wide (e.g. conf > 2 % of price)
+    require!(
+        (price.conf as u128).checked_mul(10_000).unwrap()
+            <= (price.price as u128).checked_mul(MAX_CONF_BPS as u128).unwrap(),
+        ErrorCode::OracleConfidenceTooWide
+    );
+
+    // ③ exponent normalization — expo is typically negative (e.g. -8)
+    //    real_price = price * 10^expo  →  handle sign explicitly with u128 math
+    let normalized = apply_exponent(price.price, price.expo)?; // checked arithmetic
+    Ok(())
+}
+```
+
 ## What to check when the target reads the feed
 
 A focused checklist for the consuming program's read path:
@@ -85,6 +183,27 @@ A focused checklist for the consuming program's read path:
 - Exponent is applied with the correct sign and reconciled with token decimals using checked/`u128` math.
 - After any CPI that could change the relevant clock-dependent state or re-post an update, the read uses fresh data (`stale-cpi-reload`).
 - The economic use of the price has guardrails appropriate to the asset's liquidity (caps, LTV, slippage, TWAP), not just a raw spot read.
+
+```mermaid
+flowchart TD
+    START["Consumer receives price_update AccountInfo"] --> OWN{{"account.owner ==&nbsp;expected Pyth program ?"}}
+    OWN -->|"no ❌"| BADOWN["Fabricated account → reject"]
+    OWN -->|"yes"| FEED{{"feed_id == expected symbol ?"}}
+    FEED -->|"no ❌"| BADFEED["Wrong feed substituted → reject"]
+    FEED -->|"yes"| STALE{{"publish_time + max_age &gt;= Clock::now ?"}}
+    STALE -->|"no ❌"| BADSTALE["Stale price → reject"]
+    STALE -->|"yes"| CONF{{"conf / price &le; MAX_CONF_BPS ?"}}
+    CONF -->|"no ❌"| BADCONF["Uncertain / thin market → reject"]
+    CONF -->|"yes"| POS{{"price &gt; 0 ?"}}
+    POS -->|"no ❌"| BADPOS["Invalid price → reject"]
+    POS -->|"yes"| EXPO["Apply exponent with correct sign&nbsp;(checked u128 math)"]
+    EXPO --> USE["Price safe to use in protocol logic"]
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class BADOWN b; class BADFEED b; class BADSTALE b; class BADCONF b; class BADPOS b;
+    class USE g;
+```
+<span class="figcap">Every gate is a distinct auditor check. Skipping any one gate is a finding on its own. For legacy push accounts add a status == Trading gate between staleness and confidence.</span>
 
 ```rust
 // Illustrative pull-model read (pseudocode; exact API is version-specific —
