@@ -52,7 +52,7 @@
   <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
   <script>
     if(window.mermaid) mermaid.initialize({startOnLoad:false, theme:'base', themeVariables:{primaryColor:'#f1fff9', primaryBorderColor:'#0fa76e', primaryTextColor:'#0d0d0d', lineColor:'#666', fontFamily:'Inter,system-ui,sans-serif', fontSize:'14px'}, flowchart:{curve:'basis'}});
-    const ALLOWED = ['core-solana-security','anchor-security','anchor-0.28-deltas','audit-workflow','audit-report-patterns','incidents','manual-try-accounts-checklist','raw-byte-pda-decoding','remaining-accounts-cpi-trust','references'];
+    const ALLOWED = ['core-solana-security','anchor-security','anchor-0.28-deltas','audit-workflow','audit-report-patterns','incidents','manual-try-accounts-checklist','raw-byte-pda-decoding','remaining-accounts-cpi-trust','references','cctp-v2','kamino-klend-domain','spl-token-walkthrough','token-2022-extensions','program-system','program-associated-token-account','program-pyth-oracle','program-switchboard-oracle','program-squads-multisig','program-amm-overview','program-spl-governance-realms','programs-to-recognize'];
     function slug(s){return String(s).toLowerCase().replace(/<[^>]*>/g,'').replace(/[^\w\s-]/g,'').trim().replace(/\s+/g,'-');}
     const params = new URLSearchParams(location.search);
     let doc = params.get('doc') || 'core-solana-security';
