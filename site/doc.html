@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Solana Audit Ramp-up — Reading</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#fff;--text:#0d0d0d;--muted:#666;--line:rgba(0,0,0,.07);--soft:#fafafa;--green:#18E299;--green2:#0fa76e;--blue:#3772cf}
+    *{box-sizing:border-box} html{scroll-behavior:smooth} body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.6}
+    code,.mono{font-family:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace}
+    .wrap{max-width:860px;margin:0 auto;padding:0 24px}
+    .nav{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.86);backdrop-filter:blur(16px);border-bottom:1px solid var(--line)}
+    .nav-inner{height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px;max-width:860px;margin:0 auto;padding:0 24px}
+    .brand{display:flex;align-items:center;gap:10px;font-weight:650;letter-spacing:-.3px;text-decoration:none;color:inherit}
+    .logo{width:28px;height:28px;border-radius:9px;background:radial-gradient(circle at 30% 20%,#fff 0 10%,#18E299 11% 46%,#0d0d0d 47%);box-shadow:0 0 0 1px var(--line)}
+    .back{font-size:14px;font-weight:500;border:1px solid var(--line);border-radius:999px;padding:7px 13px;background:white;text-decoration:none;color:#333}
+    .doc{padding:40px 0 80px}
+    .doc h1{font-size:clamp(30px,5vw,44px);line-height:1.08;letter-spacing:-1px;margin:0 0 8px}
+    .doc h2{font-size:26px;letter-spacing:-.5px;margin:38px 0 12px;padding-top:8px;border-top:1px solid var(--line)}
+    .doc h3{font-size:19px;letter-spacing:-.2px;margin:26px 0 8px}
+    .doc h4{font-size:16px;margin:20px 0 6px}
+    .doc p,.doc li{font-size:16px;color:#262626}
+    .doc a{color:var(--green2);text-decoration:none;border-bottom:1px solid rgba(15,167,110,.3)}
+    .doc a:hover{border-bottom-color:var(--green2)}
+    .doc ul,.doc ol{padding-left:22px}.doc li{margin:6px 0}
+    .doc code{background:#f3f4f6;padding:.15em .4em;border-radius:6px;font-size:.9em}
+    .doc pre{background:#0f1115;color:#edf2f7;padding:16px;border-radius:14px;overflow:auto;border:1px solid var(--line)}
+    .doc pre code{background:none;padding:0;color:inherit;font-size:13px;line-height:1.5}
+    .doc blockquote{margin:16px 0;padding:8px 16px;border-left:3px solid var(--green);background:#f2fff9;color:#214b3a;border-radius:0 12px 12px 0}
+    .doc .mermaid{margin:22px 0;padding:18px;background:var(--soft);border:1px solid var(--line);border-radius:16px;text-align:center;overflow-x:auto}
+    .doc .mermaid svg{max-width:100%;height:auto}
+    .figcap{display:block;text-align:center;color:var(--muted);font-size:13px;margin:-10px 0 22px}
+    .doc table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+    .doc th,.doc td{border:1px solid var(--line);padding:8px 10px;text-align:left}
+    .doc th{background:var(--soft)}
+    .doc h2,.doc h3{scroll-margin-top:80px}
+    .toc{border:1px solid var(--line);border-radius:16px;padding:16px 20px;background:var(--soft);margin:24px 0 32px}
+    .toc b{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--green2);margin-bottom:8px}
+    .toc a{display:block;font-size:14px;color:#444;text-decoration:none;padding:3px 0;border:none}
+    .toc a:hover{color:var(--green2)}
+    .toc a.lv3{padding-left:14px;color:#666;font-size:13px}
+    .loading{color:var(--muted);padding:40px 0}
+    .footer{padding:30px 0 60px;color:#666;border-top:1px solid var(--line);font-size:13px}
+  </style>
+</head>
+<body>
+  <nav class="nav"><div class="nav-inner"><a class="brand" href="index.html"><div class="logo"></div>Solana Audit Ramp-up</a><a class="back" href="index.html">← Back to overview</a></div></nav>
+  <main class="wrap doc"><div id="content" class="loading">Loading…</div></main>
+  <footer class="footer"><div class="wrap">Verify target-specific behavior against the exact Solana, Anchor, SPL Token, and Token-2022 versions in scope.</div></footer>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>
+    if(window.mermaid) mermaid.initialize({startOnLoad:false, theme:'base', themeVariables:{primaryColor:'#f1fff9', primaryBorderColor:'#0fa76e', primaryTextColor:'#0d0d0d', lineColor:'#666', fontFamily:'Inter,system-ui,sans-serif', fontSize:'14px'}, flowchart:{curve:'basis'}});
+    const ALLOWED = ['core-solana-security','anchor-security','anchor-0.28-deltas','audit-workflow','audit-report-patterns','incidents','manual-try-accounts-checklist','raw-byte-pda-decoding','remaining-accounts-cpi-trust','references'];
+    function slug(s){return String(s).toLowerCase().replace(/<[^>]*>/g,'').replace(/[^\w\s-]/g,'').trim().replace(/\s+/g,'-');}
+    const params = new URLSearchParams(location.search);
+    let doc = params.get('doc') || 'core-solana-security';
+    if(!ALLOWED.includes(doc)) doc = 'core-solana-security';
+    const el = document.getElementById('content');
+    fetch('docs/'+doc+'.md').then(r=>{if(!r.ok)throw new Error(r.status);return r.text();}).then(md=>{
+      const used = {};
+      const renderer = new marked.Renderer();
+      renderer.heading = function(text, level){
+        let id = slug(text); if(used[id]) id += '-'+(++used[id]); else used[id]=1;
+        return `<h${level} id="${id}">${text}</h${level}>`;
+      };
+      const html = marked.parse(md, {renderer});
+      el.className = '';
+      el.innerHTML = html;
+      // Turn ```mermaid fenced blocks into rendered diagrams
+      el.querySelectorAll('pre > code.language-mermaid').forEach(code=>{
+        const div = document.createElement('div'); div.className='mermaid'; div.textContent = code.textContent;
+        code.parentNode.replaceWith(div);
+      });
+      if(window.mermaid){ mermaid.run({querySelector:'.mermaid'}).catch(()=>{}); }
+      // Build a table of contents from h2/h3
+      const heads = el.querySelectorAll('h2, h3');
+      if(heads.length > 2){
+        const toc = document.createElement('div'); toc.className='toc';
+        let inner = '<b>On this page</b>';
+        heads.forEach(h=>{ inner += `<a class="${h.tagName==='H3'?'lv3':''}" href="#${h.id}">${h.textContent}</a>`; });
+        toc.innerHTML = inner;
+        const firstH2 = el.querySelector('h2');
+        (firstH2||el.firstElementChild).parentNode.insertBefore(toc, firstH2||null);
+      }
+      // Rewrite links to other .md docs so they open in this viewer
+      el.querySelectorAll('a[href]').forEach(a=>{
+        let href = a.getAttribute('href');
+        if(/\.md(#|$)/.test(href) && !/^https?:/.test(href)){
+          const m = href.match(/([^\/]+)\.md(#.*)?$/);
+          if(m && ALLOWED.includes(m[1])) a.setAttribute('href','doc.html?doc='+m[1]+(m[2]||''));
+        }
+      });
+      // Honor a #hash that arrived before content existed
+      if(location.hash){const t=document.getElementById(decodeURIComponent(location.hash.slice(1))); if(t) t.scrollIntoView();}
+      document.title = (el.querySelector('h1')?.textContent || 'Reading') + ' — Solana Audit Ramp-up';
+    }).catch(e=>{
+      el.className=''; el.innerHTML = '<h1>Could not load this page</h1><p>'+doc+'.md failed to load ('+e.message+'). Make sure the site is served over HTTP (see README), then <a href="index.html">go back</a>.</p>';
+    });
+  </script>
+</body>
+</html>

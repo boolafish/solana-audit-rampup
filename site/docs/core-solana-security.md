@@ -12,12 +12,65 @@ Audience: experienced Ethereum/Solidity auditor reviewing Solana programs. Empha
 - **CPI is like an external call, but with explicit accounts and program id.** The caller supplies the callee program account and all callee accounts; arbitrary-CPI bugs occur when program IDs are not pinned.
 - **Transactions are atomic, and account locks drive parallel execution.** A transaction succeeds or fails as a unit; declared writable accounts are locked and constrain parallelism. Compute and account-lock choices can become DoS surfaces.
 
+## How an instruction executes (visual)
+
+In EVM you call a contract and it reaches into its own storage. On Solana the **caller hands the program every account it will touch**, as a flat list, with per-account `is_signer` / `is_writable` flags. The program must prove each one is the account it expected.
+
+```mermaid
+flowchart TD
+    subgraph TX["Transaction — all or nothing"]
+      direction TB
+      IX["Instruction&nbsp;&nbsp;program_id + accounts[] + data"]
+    end
+    IX --> PROG["Program account&nbsp;(executable code)"]
+    IX --> S["State PDA&nbsp;&nbsp;owner = your program&nbsp;&nbsp;writable"]
+    IX --> V["Token vault&nbsp;&nbsp;owner = SPL Token&nbsp;&nbsp;writable"]
+    IX --> U["User&nbsp;&nbsp;is_signer = true"]
+    PROG -->|"may write data of"| S
+    PROG -. "reads only; cannot write its bytes" .-> V
+    PROG -->|"checks is_signer / has_one"| U
+```
+<span class="figcap">The caller chooses PROG, S, V, U. Nothing is implicit — every arrow is a check the program must perform.</span>
+
+**Anatomy of any account.** The four runtime fields below are the *only* trust primitives the runtime gives you. Everything else (`admin`, `mint`, `amount`, `bump`) is just bytes in `data` that some program wrote.
+
+```mermaid
+flowchart LR
+    acc["ACCOUNT"] --- l["lamports&nbsp;(balance)"]
+    acc --- o["owner&nbsp;= program allowed to write data"]
+    acc --- d["data&nbsp;= raw bytes (your struct lives here)"]
+    acc --- e["executable&nbsp;/ rent_epoch"]
+```
+
+**The trap Solidity auditors fall into: `owner` ≠ token owner.** Account `owner` is *who may write the bytes*. The token holder is a **field inside** a token account whose `owner` is the SPL Token program.
+
+```mermaid
+flowchart TD
+    yp["Your program"] -->|"writes bytes of"| st["State account&nbsp;&nbsp;owner = your program"]
+    spl["SPL Token program"] -->|"writes bytes of"| ta["Token account&nbsp;&nbsp;owner = SPL Token"]
+    ta -.->|"holds FIELD"| auth["authority = user pubkey&nbsp;&nbsp;mint = ...&nbsp;&nbsp;amount = ..."]
+    classDef hl fill:#fff7f5,stroke:#c2410c;
+    class auth hl;
+```
+
 ## Pitfalls / vulnerability notes
 
 ### 1. Missing signer authorization
 - **Why Solana-specific / different:** There is no automatic `msg.sender` for a privileged account. A pubkey appearing in account data or in the account list is not proof of authorization.
 - **Bad pattern:** `if ctx.accounts.user.key() == state.admin { ... }` but `user` is `AccountInfo`/`UncheckedAccount` and not required to sign.
 - **Mitigation:** Require `account.is_signer`; in Anchor use `Signer<'info>` or `#[account(signer)]`, plus relationship constraints such as `has_one = admin`.
+
+```mermaid
+flowchart LR
+    pk["A pubkey sits in accounts[]"] --> q{{"is_signer == true?"}}
+    q -->|"no"| bad["Just an address anyone can supply&nbsp;❌ forge admin"]
+    q -->|"yes"| good["Tx carried this key's signature&nbsp;✅ require Signer + has_one"]
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class bad b;
+    class good g;
+```
+
 - **References:**
   - Solana Program Security course, signer auth: https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/signer-auth.md
   - Anchor account constraints: https://www.anchor-lang.com/docs/references/account-constraints
@@ -26,6 +79,18 @@ Audience: experienced Ethereum/Solidity auditor reviewing Solana programs. Empha
 - **Why different:** Account data deserialization from `AccountInfo` does not by itself prove that the data was written by the expected program. Attackers can create accounts they own with spoofed bytes unless ownership is checked.
 - **Bad pattern:** Deserialize a config/vault/user state from an arbitrary account and trust fields like `admin`, `balance`, `mint`, or `bump`.
 - **Mitigation:** Check `account.owner == program_id` for program state; for SPL Token accounts check owner is the SPL Token program and validate token-account fields. In Anchor prefer `Account<'info, T>`, `Program<'info, Token>`, or `#[account(owner = ...)]`.
+
+```mermaid
+flowchart TD
+    atk["Attacker creates an account THEY own&nbsp;and writes fake bytes: admin = attacker"] --> pass["Passes it where your Config is expected"]
+    pass --> chk{{"check account.owner == program_id ?"}}
+    chk -->|"skipped ❌"| trust["Bytes deserialize fine → program trusts fake admin → drained"]
+    chk -->|"enforced ✅"| reject["owner = attacker ≠ program → rejected before use"]
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class trust b;
+    class reject g;
+```
 - **References:**
   - Solana accounts docs: https://solana.com/docs/core/accounts
   - Program Security owner checks: https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/owner-checks.md
@@ -59,6 +124,19 @@ Audience: experienced Ethereum/Solidity auditor reviewing Solana programs. Empha
 - **Why different:** PDAs are deterministic addresses controlled by a program, used as authorities/signers. Multiple valid bumps may exist for the same seed prefix if the bump is caller-chosen; this is not a cryptographic collision, but multiple valid PDA addresses for one logical resource.
 - **Bad pattern:** Accept user-supplied bump with `create_program_address` and do not ensure it is the canonical bump from `find_program_address`; use low-entropy/shared seeds; omit domain separators.
 - **Mitigation:** Use canonical bump from `find_program_address`; persist the bump when needed; in Anchor use `seeds = [...]` and `bump`; include unique domain prefixes and relevant account keys in seeds.
+
+A PDA is a deterministic address with **no private key** — the program "signs" for it by re-supplying the seeds. Scope the seeds tightly or one authority ends up controlling everything.
+
+```mermaid
+flowchart LR
+    seeds["seeds&nbsp;[b&quot;vault&quot;, pool, mint]"] --> fpa["find_program_address(seeds, program_id)"]
+    pid["program_id"] --> fpa
+    fpa --> pda["PDA address + canonical bump&nbsp;(off-curve, no key)"]
+    pda -->|"invoke_signed(seeds, bump)"| cpi["Program signs CPI as this authority"]
+    note["Seeds = [b&quot;vault&quot;] only&nbsp;→ ONE authority for ALL vaults ❌"]
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    class note b;
+```
 - **References:**
   - Solana PDA docs: https://solana.com/docs/core/pda
   - Bump seed canonicalization: https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/bump-seed-canonicalization.md
@@ -84,6 +162,24 @@ Audience: experienced Ethereum/Solidity auditor reviewing Solana programs. Empha
 - **Why different:** Even if the callee program ID is correct, every callee account is also caller-supplied. The current program may sign with a PDA over attacker-selected token accounts.
 - **Bad pattern:** Program signs an SPL Token `transfer` from `source` to `dest` but does not verify `source` is the protocol vault, `source.owner == vault_authority`, mint matches, and `dest` is the user’s expected ATA.
 - **Mitigation:** Validate all CPI accounts before invoking; prefer associated token account constraints; check token account `mint`, `owner/authority`, and PDA seeds.
+
+Even with the *right* token program, the `source`/`dest` accounts are still caller-supplied. Your PDA will happily sign a transfer out of the wrong vault if you don't pin them.
+
+```mermaid
+sequenceDiagram
+    actor U as Attacker
+    participant P as Your program (PDA signer)
+    participant T as SPL Token program
+    U->>P: withdraw(source, dest)
+    Note over P: source & dest came from the attacker
+    alt accounts NOT validated ❌
+        P->>T: invoke_signed transfer(source → dest)
+        T-->>U: protocol funds land in attacker's dest
+    else validate first ✅
+        P->>P: require source == vault PDA, mint ok, dest == user ATA
+        P->>T: invoke_signed only after all checks pass
+    end
+```
 - **References:**
   - CPI docs: https://solana.com/docs/core/cpi
   - Anchor SPL constraints (`token::mint`, `token::authority`, `associated_token::*`): https://www.anchor-lang.com/docs/references/account-constraints
@@ -116,6 +212,19 @@ Audience: experienced Ethereum/Solidity auditor reviewing Solana programs. Empha
 - **Why different:** Closing is usually implemented by transferring lamports and assigning/zeroing data. Historically/CTF-style, if data/discriminator remains and lamports are later restored in the same transaction, a “closed” account can be revived or reused unexpectedly.
 - **Bad pattern:** Drain lamports but leave owner/data/discriminator as valid program state; later instruction in same transaction re-funds account and uses stale state. Another variant branches on `lamports == 0` or an exact rent balance even though anyone can `system::transfer` lamports into a PDA.
 - **Mitigation:** Prefer Anchor `close = recipient` and verify exact behavior for the Anchor version in scope; for manual closes, clear/invalidate data, refund lamports intentionally, and ensure no subsequent same-transaction logic trusts the account. Older defensive patterns use a closed-account sentinel such as `CLOSED_ACCOUNT_DISCRIMINATOR` so a re-funded account still fails type checks.
+
+Because everything is atomic, an attacker can re-fund a "closed" account *later in the same transaction*. If you only drained lamports, the still-valid data revives.
+
+```mermaid
+flowchart TD
+    naive["Naive close: move out lamports,&nbsp;leave data + discriminator intact"] --> tx["Same transaction, next instruction:&nbsp;system::transfer lamports back in"]
+    tx --> revive["Account 'undead' with valid stale state ❌"]
+    safe["close = recipient → zero data&nbsp;+ set closed sentinel discriminator ✅"] --> dead["Re-funded account fails the type check"]
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class revive b;
+    class dead g;
+```
 - **References:**
   - Closing accounts: https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/closing-accounts.md
   - Anchor `close` constraint: https://www.anchor-lang.com/docs/references/account-constraints

@@ -24,6 +24,27 @@ For every instruction, build a matrix for every account:
 - Token checks: token program, mint, authority, ATA derivation, delegates, close/freeze authority, Token-2022 extensions
 - Sysvar address check
 
+Think of it as a gauntlet every account must pass *before* the handler trusts it. Any gate skipped is a candidate finding.
+
+```mermaid
+flowchart LR
+    a["Account from accounts[]"] --> g1{{"signer / writable<br/>as required?"}}
+    g1 --> g2{{"owner == expected<br/>program?"}}
+    g2 --> g3{{"PDA seeds + bump<br/>match?"}}
+    g3 --> g4{{"discriminator /<br/>type ok?"}}
+    g4 --> g5{{"relationships:<br/>has_one, mint, pool?"}}
+    g5 --> ok["Handler may use it ✅"]
+    g1 -.->|"no"| fail["Reject ❌"]
+    g2 -.->|"no"| fail
+    g3 -.->|"no"| fail
+    g4 -.->|"no"| fail
+    g5 -.->|"no"| fail
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    class ok g;
+    class fail b;
+```
+
 ## 3. CPI review
 
 - Pin CPI target program IDs.

@@ -2,6 +2,26 @@
 
 `ctx.remaining_accounts` is outside Anchor's `#[derive(Accounts)]` validation. Router-style programs often forward that slice into another protocol CPI. In that design, the boundary between validated context accounts and forwarded accounts is security-critical.
 
+Anchor's `#[derive(Accounts)]` is a wall: everything *inside* the struct is type/owner/seed/relationship checked. `remaining_accounts` arrives **outside that wall** — raw, caller-ordered, unchecked — and the router carries it straight into a CPI that the router's own PDA signs.
+
+```mermaid
+flowchart TD
+    tx["Caller-supplied accounts[]"] --> ctx["#[derive(Accounts)] context"]
+    tx --> rem["remaining_accounts (raw slice)"]
+    ctx -->|"type, owner, seeds, has_one checked ✅"| wall{{"Trust boundary"}}
+    rem -.->|"NO Anchor validation ❌"| wall
+    wall --> risky["Forward slice by index as-is&nbsp;→ invoke_signed"]
+    wall --> safe["Parse to callee schema + validate roles&nbsp;→ invoke_signed"]
+    risky --> bad["Router's PDA signs over attacker-chosen reserve/vault/oracle"]
+    safe --> good["PDA signs only validated, role-bound accounts"]
+    classDef b fill:#fff7f5,stroke:#c2410c;
+    classDef g fill:#f1fff9,stroke:#0fa76e;
+    class risky b;
+    class bad b;
+    class safe g;
+    class good g;
+```
+
 ## Core rule
 
 Forwarded accounts must be validated against the callee's account schema before the CPI. "The downstream program will fail if wrong" is not enough when the current program signs with a PDA, marks accounts writable, or relies on the CPI outcome for accounting.
