@@ -31,13 +31,10 @@ Every Solana/Anchor program, regardless of protocol type:
 
 ## Code-signal index
 
-Grep the target program. If a token appears, consider the listed patterns.
+Grep the target program. If a token appears, consider the listed patterns. Very broad operator/control-flow tokens are kept in detail pages but omitted from this routing table to reduce noise.
 
 | Grep token | Consider patterns |
 | --- | --- |
-| ` % ` | [`insecure-randomness`](references/insecure-randomness.md) |
-| ` * ` | [`math`](references/math.md) |
-| ` / ` | [`math`](references/math.md) |
 | `#[account(` | [`anchor-unchecked`](references/anchor-unchecked.md) |
 | `#[account(init` | [`reinit`](references/reinit.md) |
 | `#[account(init_if_needed` | [`anchor-init-if-needed`](references/anchor-init-if-needed.md) |
@@ -87,7 +84,6 @@ Grep the target program. If a token appears, consider the listed patterns.
 | `emit_cpi` | [`event-log-reliance`](references/event-log-reliance.md) |
 | `find_program_address` | [`pda-bump`](references/pda-bump.md), [`find-program-address-cu-cost`](references/find-program-address-cu-cost.md), [`seed-prefix-collision`](references/seed-prefix-collision.md) |
 | `fn try_accounts` | [`manual-try-accounts`](references/manual-try-accounts.md) |
-| `for ` | [`compute-dos`](references/compute-dos.md), [`find-program-address-cu-cost`](references/find-program-address-cu-cost.md) |
 | `from_bytes` | [`zero-copy-layout`](references/zero-copy-layout.md) |
 | `get_account_data_size` | [`token2022`](references/token2022.md) |
 | `get_price` | [`oracle-validation`](references/oracle-validation.md) |
