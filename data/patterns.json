@@ -22,6 +22,27 @@
       "native_good": "`require!(admin.is_signer); require_keys_eq!(admin.key(), state.admin);`",
       "anchor_bad": "`pub admin: UncheckedAccount<'info>` plus key comparison only.",
       "anchor_good": "`pub admin: Signer<'info>` and `#[account(has_one = admin)] pub state: Account<'info, State>`."
+    },
+    "triggers": {
+      "code_signals": [
+        "AccountInfo",
+        "UncheckedAccount",
+        "is_signer",
+        "Signer<",
+        "has_one",
+        "#[account(signer"
+      ],
+      "protocols": [
+        "any privileged/admin instruction",
+        "vaults",
+        "lending",
+        "governance"
+      ],
+      "concepts": [
+        "authority compared by key but never required to sign",
+        "admin/config-mutating instruction",
+        "PDA authority used without invoke_signed"
+      ]
     }
   },
   {
@@ -48,6 +69,27 @@
       "native_good": "Check `config.owner == program_id`, length, discriminator/version, then deserialize.",
       "anchor_bad": "`pub config: AccountInfo<'info>` and manual deserialize.",
       "anchor_good": "`pub config: Account<'info, Config>` or `#[account(owner = expected_program)]` for raw accounts."
+    },
+    "triggers": {
+      "code_signals": [
+        "try_from_slice",
+        "try_from_slice_unchecked",
+        ".data.borrow()",
+        "AccountInfo",
+        "UncheckedAccount",
+        "#[account(owner",
+        "owner =="
+      ],
+      "protocols": [
+        "any program reading another account's data",
+        "token vaults",
+        "oracles"
+      ],
+      "concepts": [
+        "deserializing program state from a raw account",
+        "trusting fields in a caller-supplied account",
+        "SPL token authority vs solana account owner confusion"
+      ]
     }
   },
   {
@@ -73,6 +115,28 @@
       "native_good": "Check vault address/PDA, token mint, token authority, pool id, and expected token program.",
       "anchor_bad": "`pub vault: Account<'info, TokenAccount>` with no `token::mint` or authority constraint.",
       "anchor_good": "`#[account(token::mint = mint, token::authority = vault_authority)] pub vault: Account<'info, TokenAccount>`."
+    },
+    "triggers": {
+      "code_signals": [
+        "has_one",
+        "Account<",
+        "TokenAccount",
+        "token::mint",
+        "token::authority",
+        "require_keys_eq",
+        ".key()"
+      ],
+      "protocols": [
+        "lending",
+        "amm/dex",
+        "vaults",
+        "any multi-account flow"
+      ],
+      "concepts": [
+        "correct-type account belonging to wrong user/pool/mint",
+        "vault/position/market cross-links",
+        "ATA derivation not enforced"
+      ]
     }
   },
   {
@@ -92,7 +156,25 @@
     "refs": [
       "https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/type-cosplay.md",
       "https://github.com/coral-xyz/sealevel-attacks"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "try_from_slice",
+        "AccountDeserialize",
+        "discriminator",
+        "AccountInfo",
+        "Borsh"
+      ],
+      "protocols": [
+        "native programs",
+        "programs with multiple similar account structs"
+      ],
+      "concepts": [
+        "two structs sharing a prefix layout",
+        "missing discriminator/type tag",
+        "Anchor discriminator bypassed via unchecked deserialize"
+      ]
+    }
   },
   {
     "id": "reinit",
@@ -111,7 +193,24 @@
     "refs": [
       "https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/reinitialization-attacks.md",
       "https://www.anchor-lang.com/docs/references/account-constraints"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "init_if_needed",
+        "#[account(init",
+        "initialize",
+        "is_initialized"
+      ],
+      "protocols": [
+        "any stateful program",
+        "proxy-like config"
+      ],
+      "concepts": [
+        "initialize callable twice",
+        "close then recreate to reset authority",
+        "init_if_needed resetting critical fields"
+      ]
+    }
   },
   {
     "id": "pda-bump",
@@ -131,7 +230,27 @@
       "https://solana.com/docs/core/pda",
       "https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/bump-seed-canonicalization.md",
       "https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/pda-sharing.md"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "find_program_address",
+        "create_program_address",
+        "seeds =",
+        "bump",
+        "Pubkey::find_program_address"
+      ],
+      "protocols": [
+        "any PDA-using program",
+        "vaults",
+        "PDA authorities"
+      ],
+      "concepts": [
+        "user-supplied bump",
+        "non-canonical bump accepted",
+        "under-scoped seeds",
+        "one PDA authority spanning unrelated resources"
+      ]
+    }
   },
   {
     "id": "arbitrary-cpi",
@@ -157,6 +276,27 @@
       "native_good": "`require_keys_eq!(supplied_program.key(), spl_token::ID)` before CPI.",
       "anchor_bad": "`pub token_program: AccountInfo<'info>`.",
       "anchor_good": "`pub token_program: Program<'info, Token>` or constrained `Interface<'info, TokenInterface>`."
+    },
+    "triggers": {
+      "code_signals": [
+        "invoke(",
+        "invoke_signed(",
+        "Instruction {",
+        "program_id:",
+        "Program<",
+        "Interface<",
+        "AccountInfo"
+      ],
+      "protocols": [
+        "any CPI",
+        "token transfers",
+        "router/aggregator"
+      ],
+      "concepts": [
+        "CPI target program passed by caller",
+        "missing program id pin",
+        "wrong token program accepted"
+      ]
     }
   },
   {
@@ -176,7 +316,27 @@
     "refs": [
       "https://solana.com/docs/core/cpi",
       "https://www.anchor-lang.com/docs/references/account-constraints"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "invoke_signed",
+        "CpiContext",
+        "with_signer",
+        "token::transfer",
+        "AccountMeta"
+      ],
+      "protocols": [
+        "vaults",
+        "lending",
+        "router",
+        "any PDA-signed CPI"
+      ],
+      "concepts": [
+        "program signs over attacker-chosen accounts",
+        "confused deputy",
+        "callee accounts not validated before CPI"
+      ]
+    }
   },
   {
     "id": "duplicate-mut",
@@ -195,7 +355,25 @@
     "refs": [
       "https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/duplicate-mutable-accounts.md",
       "https://github.com/coral-xyz/sealevel-attacks"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "#[account(mut",
+        "AccountInfo",
+        "constraint =",
+        "key() !="
+      ],
+      "protocols": [
+        "transfers",
+        "games",
+        "two-account swap flows"
+      ],
+      "concepts": [
+        "same account passed for two roles",
+        "payer == recipient",
+        "user_a == user_b aliasing"
+      ]
+    }
   },
   {
     "id": "sysvar-spoof",
@@ -214,7 +392,25 @@
     "refs": [
       "https://docs.rs/solana-program/latest/solana_program/sysvar/index.html",
       "https://docs.rs/solana-program/latest/solana_program/sysvar/instructions/index.html"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "Sysvar<",
+        "Clock::get",
+        "Rent::get",
+        "sysvar",
+        "Instructions",
+        "AccountInfo"
+      ],
+      "protocols": [
+        "any time/rent-dependent logic",
+        "signature introspection"
+      ],
+      "concepts": [
+        "sysvar passed as account without address check",
+        "fake clock/rent/instructions account"
+      ]
+    }
   },
   {
     "id": "close-revival",
@@ -233,7 +429,26 @@
     "refs": [
       "https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/closing-accounts.md",
       "https://www.anchor-lang.com/docs/references/account-constraints"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "close =",
+        "lamports",
+        "try_borrow_mut_lamports",
+        "**",
+        "AccountInfo"
+      ],
+      "protocols": [
+        "any account-closing flow",
+        "claims",
+        "escrow"
+      ],
+      "concepts": [
+        "manual close leaves data/discriminator valid",
+        "same-transaction revival",
+        "refund sent to wrong recipient"
+      ]
+    }
   },
   {
     "id": "realloc-rent",
@@ -252,7 +467,25 @@
     "refs": [
       "https://solana.com/docs/core/accounts",
       "https://www.anchor-lang.com/docs/references/account-constraints"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "realloc",
+        "realloc::payer",
+        "realloc::zero",
+        "Rent",
+        "AccountInfo::realloc"
+      ],
+      "protocols": [
+        "growable accounts",
+        "dynamic lists/queues"
+      ],
+      "concepts": [
+        "resize without funding rent",
+        "stale bytes after grow",
+        "unbounded size growth"
+      ]
+    }
   },
   {
     "id": "math",
@@ -271,7 +504,31 @@
     "refs": [
       "https://neodyme.io/en/blog/solana_common_pitfalls/",
       "https://github.com/solana-foundation/developer-content/tree/main/content/courses/program-security"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "checked_",
+        "saturating_",
+        "as u64",
+        "as u128",
+        "overflow-checks",
+        "u128",
+        " * ",
+        " / "
+      ],
+      "protocols": [
+        "lending",
+        "amm",
+        "rewards",
+        "any accounting"
+      ],
+      "concepts": [
+        "unchecked arithmetic in optimized build",
+        "division before multiplication",
+        "decimal/exponent mismatch",
+        "rounding exploited by repeated small actions"
+      ]
+    }
   },
   {
     "id": "compute-dos",
@@ -290,7 +547,26 @@
     "refs": [
       "https://solana.com/docs/core/fees",
       "https://solana.com/docs/core/transactions"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "remaining_accounts",
+        "for ",
+        ".iter()",
+        "#[account(mut",
+        "Vec<"
+      ],
+      "protocols": [
+        "batch operations",
+        "any global counter/config"
+      ],
+      "concepts": [
+        "unbounded loops",
+        "global writable hot account serializes usage",
+        "compute-budget exhaustion",
+        "writable-account lock contention"
+      ]
+    }
   },
   {
     "id": "token2022",
@@ -311,7 +587,31 @@
       "https://spl.solana.com/token-2022",
       "https://solana.com/docs/tokens/extensions",
       "https://github.com/solana-labs/security-audits/blob/master/spl/OtterSecToken2022Audit-2023-11-03.pdf"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "InterfaceAccount",
+        "TokenInterface",
+        "spl_token_2022",
+        "transfer_fee",
+        "transfer_hook",
+        "get_account_data_size",
+        "token::mint"
+      ],
+      "protocols": [
+        "any token-handling program",
+        "vaults",
+        "amm",
+        "lending"
+      ],
+      "concepts": [
+        "transfer fee breaks balance accounting",
+        "transfer hook reentrancy",
+        "default-frozen accounts",
+        "permanent delegate",
+        "confidential transfer"
+      ]
+    }
   },
   {
     "id": "oracle-mev",
@@ -332,7 +632,30 @@
       "https://www.helius.dev/blog/priority-fees-understanding-solanas-transaction-fee-mechanics",
       "https://solana.com/docs/core/fees",
       "https://rekt.news/mango-markets-rekt/"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "price",
+        "slippage",
+        "min_out",
+        "deadline",
+        "Clock",
+        "slot"
+      ],
+      "protocols": [
+        "amm",
+        "lending",
+        "perps",
+        "auctions",
+        "liquidations"
+      ],
+      "concepts": [
+        "no slippage / stale-quote protection",
+        "ordering-sensitive flow",
+        "private orderflow / Jito bundle assumptions",
+        "liquidation ordering assumed deterministic"
+      ]
+    }
   },
   {
     "id": "upgrade-admin",
@@ -351,7 +674,25 @@
     "refs": [
       "https://solana.com/docs/core/programs",
       "https://github.com/solana-labs/security-audits"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "upgrade_authority",
+        "set_authority",
+        "BpfLoaderUpgradeable",
+        "admin",
+        "authority"
+      ],
+      "protocols": [
+        "any upgradeable program",
+        "admin-controlled config"
+      ],
+      "concepts": [
+        "single hot-key upgrade authority",
+        "admin can drain or alter oracle",
+        "no timelock/multisig on dangerous params"
+      ]
+    }
   },
   {
     "id": "anchor-unchecked",
@@ -371,7 +712,24 @@
       "https://docs.rs/anchor-lang/latest/anchor_lang/accounts/unchecked_account/struct.UncheckedAccount.html",
       "https://docs.rs/anchor-lang/latest/anchor_lang/accounts/account/struct.Account.html",
       "https://www.anchor-lang.com/docs/references/account-constraints"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "UncheckedAccount",
+        "AccountInfo",
+        "/// CHECK",
+        "Account<",
+        "#[account("
+      ],
+      "protocols": [
+        "any Anchor program"
+      ],
+      "concepts": [
+        "unchecked account treated as trusted state",
+        "manual checks do not recreate constraints",
+        "CHECK comment without real validation"
+      ]
+    }
   },
   {
     "id": "anchor-init-if-needed",
@@ -391,7 +749,21 @@
       "https://www.anchor-lang.com/docs/references/account-constraints",
       "https://docs.rs/anchor-lang/latest/anchor_lang/derive.Accounts.html",
       "https://github.com/coral-xyz/sealevel-attacks"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "init_if_needed",
+        "#[account(init_if_needed"
+      ],
+      "protocols": [
+        "any Anchor stateful program"
+      ],
+      "concepts": [
+        "handler writes authority on every call",
+        "reinit via init_if_needed",
+        "init-if-needed feature enabled"
+      ]
+    }
   },
   {
     "id": "anchor-token-interface",
@@ -411,7 +783,24 @@
       "https://www.anchor-lang.com/docs/tokens/basics/create-token-account",
       "https://www.anchor-lang.com/docs/references/account-constraints",
       "https://solana.com/docs/tokens/extensions"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "InterfaceAccount",
+        "Interface<",
+        "TokenInterface",
+        "mint::token_program",
+        "token::token_program"
+      ],
+      "protocols": [
+        "token programs supporting both classic Token and Token-2022"
+      ],
+      "concepts": [
+        "token_program constraint not bound to a specific program",
+        "Token-2022 support unintentional",
+        "extensions not allowlisted/rejected"
+      ]
+    }
   },
   {
     "id": "stale-cpi-reload",
@@ -437,7 +826,24 @@
       "https://docs.rs/anchor-lang/latest/anchor_lang/accounts/account/struct.Account.html",
       "https://solana.com/docs/core/cpi",
       "https://www.helius.dev/blog/a-hitchhikers-guide-to-solana-program-security"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "reload()",
+        "invoke",
+        "CpiContext",
+        "token::transfer",
+        ".amount"
+      ],
+      "protocols": [
+        "any CPI followed by a post-condition check",
+        "balance-delta checks"
+      ],
+      "concepts": [
+        "post-CPI invariant checked against pre-CPI cached field",
+        "missing reload() after CPI"
+      ]
+    }
   },
   {
     "id": "signature-introspection",
@@ -463,7 +869,26 @@
       "https://docs.rs/solana-program/latest/solana_program/sysvar/instructions/index.html",
       "https://docs.rs/solana-ed25519-program/latest/solana_ed25519_program/",
       "https://www.certik.com/resources/blog/wormhole-bridge-exploit-incident-analysis"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "load_instruction_at_checked",
+        "ed25519",
+        "secp256k1",
+        "sysvar::instructions",
+        "load_current_index"
+      ],
+      "protocols": [
+        "bridges",
+        "meta-transactions",
+        "permit-style flows",
+        "off-chain signed orders"
+      ],
+      "concepts": [
+        "checks a signature instruction exists but not payload/signer/index",
+        "missing domain/nonce/expiry binding"
+      ]
+    }
   },
   {
     "id": "insecure-randomness",
@@ -489,7 +914,27 @@
       "https://docs.rs/solana-program/latest/solana_program/sysvar/index.html",
       "https://docs.switchboard.xyz/",
       "https://docs.pyth.network/entropy"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "Clock::get",
+        "slot",
+        "unix_timestamp",
+        "recent_blockhashes",
+        " % "
+      ],
+      "protocols": [
+        "lottery",
+        "raffle",
+        "games",
+        "NFT mint ordering"
+      ],
+      "concepts": [
+        "modulo of slot/timestamp used as randomness",
+        "predictable or biasable entropy",
+        "participant aborts after unfavorable reveal"
+      ]
+    }
   },
   {
     "id": "oracle-validation",
@@ -517,7 +962,30 @@
       "https://docs.switchboard.xyz/",
       "https://rekt.news/mango-markets-rekt/",
       "https://www.certik.com/resources/blog/nirvana-finance-incident-analysis"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "price_feed",
+        "Pyth",
+        "Switchboard",
+        "get_price",
+        "publish_time",
+        "confidence",
+        "AccountInfo"
+      ],
+      "protocols": [
+        "lending",
+        "perps",
+        "stablecoins",
+        "collateral valuation"
+      ],
+      "concepts": [
+        "feed account not pinned to config",
+        "freshness/confidence/status not checked",
+        "exponent/decimals not normalized",
+        "low-liquidity spot price inflates collateral"
+      ]
+    }
   },
   {
     "id": "remaining-accounts",
@@ -543,7 +1011,24 @@
       "https://www.anchor-lang.com/docs/references/account-constraints",
       "https://docs.rs/anchor-lang/latest/anchor_lang/accounts/unchecked_account/struct.UncheckedAccount.html",
       "https://solana.com/docs/core/transactions"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "remaining_accounts",
+        "ctx.remaining_accounts",
+        "next_account_info"
+      ],
+      "protocols": [
+        "batch/variable-account flows",
+        "router",
+        "multi-market"
+      ],
+      "concepts": [
+        "index position trusted as a role",
+        "no length/order check",
+        "per-account owner/type/relationship validation missing"
+      ]
+    }
   },
   {
     "id": "native-sol-lamports",
@@ -569,7 +1054,27 @@
       "https://solana.com/docs/core/accounts",
       "https://docs.rs/anchor-lang/latest/anchor_lang/",
       "https://neodyme.io/en/blog/solana_common_pitfalls/"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "lamports",
+        "try_borrow_mut_lamports",
+        "add_lamports",
+        "sub_lamports",
+        "system_program::transfer",
+        "WSOL"
+      ],
+      "protocols": [
+        "native SOL vaults",
+        "staking",
+        "escrow"
+      ],
+      "concepts": [
+        "manual lamport mutation before checks",
+        "rent-exempt floor ignored",
+        "native SOL vs wrapped SOL confusion"
+      ]
+    }
   },
   {
     "id": "zero-copy-layout",
@@ -595,7 +1100,28 @@
       "https://www.anchor-lang.com/docs/features/zero-copy",
       "https://docs.rs/bytemuck/latest/bytemuck/",
       "https://docs.rs/anchor-lang/latest/anchor_lang/accounts/account_loader/struct.AccountLoader.html"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "zero_copy",
+        "bytemuck",
+        "AccountLoader",
+        "from_bytes",
+        "repr(C)",
+        "Pod",
+        "Zeroable"
+      ],
+      "protocols": [
+        "high-performance programs",
+        "orderbooks",
+        "large state accounts"
+      ],
+      "concepts": [
+        "bytemuck cast without owner/len/discriminator",
+        "padding/alignment hazards",
+        "layout/version drift on upgrade"
+      ]
+    }
   },
   {
     "id": "event-log-reliance",
@@ -620,7 +1146,25 @@
     "refs": [
       "https://solana.com/docs/core/transactions",
       "https://www.anchor-lang.com/docs/features/events"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "msg!",
+        "emit!",
+        "emit_cpi",
+        "sol_log"
+      ],
+      "protocols": [
+        "claims",
+        "airdrops",
+        "anything indexer-driven"
+      ],
+      "concepts": [
+        "correctness depends on an indexer observing logs",
+        "no on-chain replay/double-claim guard",
+        "logs mimicable by other programs"
+      ]
+    }
   },
   {
     "id": "governance-timelock",
@@ -647,7 +1191,27 @@
       "https://docs.realms.today/",
       "https://docs.squads.so/",
       "https://solana.com/docs/core/programs"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "governance",
+        "Realms",
+        "Squads",
+        "multisig",
+        "proposal",
+        "threshold",
+        "timelock"
+      ],
+      "protocols": [
+        "DAO-controlled programs",
+        "multisig-controlled programs"
+      ],
+      "concepts": [
+        "governance account owner/program unchecked",
+        "proposal/instruction hash not bound to approval",
+        "emergency path bypasses timelock/threshold"
+      ]
+    }
   },
   {
     "id": "native-parser-hazards",
@@ -673,7 +1237,26 @@
       "https://github.com/solana-labs/security-audits/blob/master/spl/ZellicSinglePoolAudit-2023-06-21.pdf",
       "https://solana.com/docs/core/accounts",
       "https://neodyme.io/en/blog/solana_common_pitfalls/"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "next_account_info",
+        "try_from_slice_unchecked",
+        "data[",
+        "Pubkey::new_from_array",
+        "unpack",
+        "offset"
+      ],
+      "protocols": [
+        "native (non-Anchor) programs",
+        "vote/stake account parsing"
+      ],
+      "concepts": [
+        "hard-coded offsets",
+        "no owner/version/length check before reading",
+        "wrong account-order assumptions"
+      ]
+    }
   },
   {
     "id": "anchor-0.28-deltas",
@@ -699,7 +1282,24 @@
       "docs/anchor-0.28-deltas.md",
       "https://github.com/coral-xyz/anchor/blob/master/CHANGELOG.md",
       "https://docs.rs/anchor-lang/0.28.0/anchor_lang/"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "anchor-lang = \"0.28",
+        "Cargo.lock",
+        "init_if_needed",
+        "payer =",
+        "Signer<"
+      ],
+      "protocols": [
+        "programs pinned to Anchor 0.28"
+      ],
+      "concepts": [
+        "payer mut requirement differs",
+        "version-sensitive codegen",
+        "lamport-helper behavior differs from latest tutorials"
+      ]
+    }
   },
   {
     "id": "manual-try-accounts",
@@ -725,7 +1325,22 @@
       "docs/manual-try-accounts-checklist.md",
       "https://www.anchor-lang.com/docs/references/account-constraints",
       "https://docs.rs/anchor-lang/latest/anchor_lang/derive.Accounts.html"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "impl<'info> Accounts",
+        "fn try_accounts",
+        "next_account_info"
+      ],
+      "protocols": [
+        "programs with hand-rolled Accounts implementations"
+      ],
+      "concepts": [
+        "manual parser skips signer/owner/discriminator checks",
+        "boundary silently shifts into remaining_accounts",
+        "aliasing not rejected"
+      ]
+    }
   },
   {
     "id": "remaining-accounts-trust",
@@ -751,7 +1366,27 @@
       "docs/remaining-accounts-cpi-trust.md",
       "https://solana.com/docs/core/cpi",
       "https://www.anchor-lang.com/docs/references/account-constraints"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "remaining_accounts",
+        "AccountMeta::new",
+        "invoke(&ix",
+        "is_writable",
+        "Kamino",
+        "KLend"
+      ],
+      "protocols": [
+        "routers",
+        "aggregators",
+        "lending-CPI integrations"
+      ],
+      "concepts": [
+        "caller account order forwarded straight into a CPI",
+        "writable flags passed through unvalidated",
+        "callee IDL ordering / special accounts not validated"
+      ]
+    }
   },
   {
     "id": "raw-byte-pda-decoding",
@@ -777,7 +1412,24 @@
       "docs/raw-byte-pda-decoding.md",
       "https://borsh.io/",
       "https://docs.rs/anchor-lang/latest/anchor_lang/trait.AccountDeserialize.html"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "data[",
+        "Pubkey::new_from_array",
+        "try_into()",
+        "UncheckedAccount",
+        "[8..40]"
+      ],
+      "protocols": [
+        "cross-program integrations reading callee state"
+      ],
+      "concepts": [
+        "hard-coded byte offsets",
+        "no discriminator/version check before slicing",
+        "Option/enum/field-order shift moves the target field"
+      ]
+    }
   },
   {
     "id": "find-program-address-cu-cost",
@@ -803,7 +1455,25 @@
       "https://solana.com/docs/core/pda",
       "https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/bump-seed-canonicalization.md",
       "https://solana.com/docs/core/fees"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "find_program_address",
+        "create_program_address",
+        "bump",
+        "for ",
+        "loop"
+      ],
+      "protocols": [
+        "CPI-heavy programs",
+        "hot loops"
+      ],
+      "concepts": [
+        "repeated find_program_address inside a loop",
+        "switching to a client-supplied bump to save compute",
+        "stored bump not re-verified against the PDA address"
+      ]
+    }
   },
   {
     "id": "seed-prefix-collision",
@@ -829,7 +1499,23 @@
       "https://solana.com/docs/core/pda",
       "https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/pda-sharing.md",
       "https://github.com/coral-xyz/sealevel-attacks"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "seeds =",
+        "find_program_address",
+        "b\"vault\"",
+        "UncheckedAccount"
+      ],
+      "protocols": [
+        "programs with multiple PDA account types"
+      ],
+      "concepts": [
+        "shared seed shape across account types",
+        "weak or duplicated static prefix",
+        "type/discriminator not verified after derivation"
+      ]
+    }
   },
   {
     "id": "instructions-sysvar-introspection",
@@ -855,6 +1541,24 @@
       "https://docs.rs/solana-program/latest/solana_program/sysvar/instructions/index.html",
       "https://docs.rs/solana-program/latest/solana_program/sysvar/index.html",
       "https://www.certik.com/resources/blog/wormhole-bridge-exploit-incident-analysis"
-    ]
+    ],
+    "triggers": {
+      "code_signals": [
+        "sysvar::instructions",
+        "load_current_index_checked",
+        "load_instruction_at_checked",
+        "Sysvar1nstructions"
+      ],
+      "protocols": [
+        "anti-CPI / direct-call enforcement",
+        "signature-verifier placement",
+        "bridges"
+      ],
+      "concepts": [
+        "sysvar address not exact-checked",
+        "inspected instruction position not relative to current index",
+        "program id / accounts / data not bound"
+      ]
+    }
   }
 ]
