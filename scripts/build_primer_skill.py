@@ -23,7 +23,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 SKILL = ROOT / ".claude" / "skills" / "solana-audit-primer"
 REFS = SKILL / "references"
+AGENTS = SKILL / "agents"
 REPO_BLOB = "https://github.com/boolafish/solana-audit-rampup/blob/main/"
+
+# These tokens are still useful inside individual pattern pages, but they are
+# too broad for the primary routing table.
+BROAD_INDEX_SIGNALS = {" % ", " * ", " / ", "for "}
 
 # ---------------------------------------------------------------------------
 # Triggers: the routing layer. For each pattern id:
@@ -298,6 +303,11 @@ def main():
         categories[c].append(p)
 
     REFS.mkdir(parents=True, exist_ok=True)
+    AGENTS.mkdir(parents=True, exist_ok=True)
+
+    # Keep generated output deterministic if patterns are renamed or removed.
+    for old_ref in REFS.glob("*.md"):
+        old_ref.unlink()
 
     # 2) detail pages --------------------------------------------------------
     for p in patterns:
@@ -309,7 +319,10 @@ def main():
     # 4) threat-model.md -----------------------------------------------------
     write_threat_model()
 
-    print(f"Wrote SKILL.md, threat-model.md and {len(patterns)} reference pages to {SKILL}")
+    # 5) agents/openai.yaml --------------------------------------------------
+    write_agents_metadata()
+
+    print(f"Wrote SKILL.md, agents/openai.yaml, threat-model.md and {len(patterns)} reference pages to {SKILL}")
 
 
 def related_ids(pid, by_id, cooc):
@@ -436,10 +449,16 @@ def write_skill_index(patterns, by_id, cat_order, categories):
         for sig in p["triggers"]["code_signals"]:
             sig_index.setdefault(sig, []).append(p["id"])
     L.append("## Code-signal index\n")
-    L.append("Grep the target program. If a token appears, consider the listed patterns.\n")
+    L.append(
+        "Grep the target program. If a token appears, consider the listed patterns. "
+        "Very broad operator/control-flow tokens are kept in detail pages but omitted "
+        "from this routing table to reduce noise.\n"
+    )
     L.append("| Grep token | Consider patterns |")
     L.append("| --- | --- |")
     for sig in sorted(sig_index, key=lambda s: s.lower()):
+        if sig in BROAD_INDEX_SIGNALS:
+            continue
         ids = sig_index[sig]
         cell = ", ".join(f"[`{i}`](references/{i}.md)" for i in ids)
         L.append(f"| `{sig}` | {cell} |")
@@ -540,6 +559,18 @@ playbook(s) for this program's type, run the always-check core set, and load the
 matched `references/<id>.md` pages. Record each finding against its pattern id.
 """
     (SKILL / "threat-model.md").write_text(content)
+
+
+def write_agents_metadata():
+    content = """interface:
+  display_name: "Solana Audit Primer"
+  short_description: "Route Solana audit checks by code signal"
+  default_prompt: "Use $solana-audit-primer to threat-model this Solana program and prioritize vulnerability patterns."
+
+policy:
+  allow_implicit_invocation: true
+"""
+    (AGENTS / "openai.yaml").write_text(content)
 
 
 if __name__ == "__main__":

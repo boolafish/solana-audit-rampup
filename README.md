@@ -17,7 +17,7 @@ A compact, evidence-backed ramp-up site for auditors who already know Ethereum/S
 
 ## Solana Audit Primer skill
 
-`.claude/skills/solana-audit-primer/` is a self-contained [Claude Code skill](https://docs.claude.com/en/docs/claude-code/skills) that turns the pattern knowledge base into an agent-discoverable, two-layer catalog for threat-modeling and auditing Solana/Anchor programs.
+`.claude/skills/solana-audit-primer/` is a self-contained skill folder for Claude Code and Codex/OpenAI skills. It turns the pattern knowledge base into an agent-discoverable, two-layer catalog for threat-modeling and auditing Solana/Anchor programs.
 
 - `SKILL.md` — routing layer. A workflow, an always-check core set, a **code-signal index** (grep token → patterns to load), per-protocol playbooks, and the full catalog. An agent reads this first and only pulls the detail pages it needs.
 - `threat-model.md` — entry scaffold (assets, actors, trust boundaries, per-instruction validation matrix, adversarial questions) that feeds into the catalog.
@@ -25,13 +25,18 @@ A compact, evidence-backed ramp-up site for auditors who already know Ethereum/S
 
 ### Using it
 
-It is fully portable. Copy the folder and Claude Code auto-discovers it via the frontmatter:
+It is fully portable. Copy the folder into the skill directory for the agent you use:
 
 ```bash
-# this project only
+# Claude Code: this project only
 cp -r .claude/skills/solana-audit-primer /path/to/target-repo/.claude/skills/
-# or all your projects
+
+# Claude Code: all your projects
 cp -r .claude/skills/solana-audit-primer ~/.claude/skills/
+
+# Codex/OpenAI: all your projects
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+cp -r .claude/skills/solana-audit-primer "${CODEX_HOME:-$HOME/.codex}/skills/"
 ```
 
 All links inside the folder are relative; the only external pointers are absolute URLs, so nothing dangles after a copy. Copies are snapshots — re-copy after regenerating to update them.

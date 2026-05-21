@@ -1,0 +1,7 @@
+interface:
+  display_name: "Solana Audit Primer"
+  short_description: "Route Solana audit checks by code signal"
+  default_prompt: "Use $solana-audit-primer to threat-model this Solana program and prioritize vulnerability patterns."
+
+policy:
+  allow_implicit_invocation: true
