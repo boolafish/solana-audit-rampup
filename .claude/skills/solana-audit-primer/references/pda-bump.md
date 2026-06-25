@@ -9,13 +9,13 @@
 
 **Protocol types:** any PDA-using program, vaults, PDA authorities
 
-**Concepts:** user-supplied bump; non-canonical bump accepted; under-scoped seeds; one PDA authority spanning unrelated resources
+**Concepts:** user-supplied bump; non-canonical bump accepted; under-scoped seeds; one PDA authority spanning unrelated resources; singleton root PDA namespace confused with mutable admin authority
 
 ## Why this differs from Solidity/EVM
 
 Roughly comparable to deterministic CREATE2 addresses, but PDAs are also signing authorities for CPIs.
 
-PDA derivation includes seeds and a bump. Allowing arbitrary valid bumps can create multiple valid PDA addresses for one logical resource; under-scoped seeds can make one PDA authority cover unrelated resources.
+PDA derivation includes seeds and a bump. Allowing arbitrary valid bumps can create multiple valid PDA addresses for one logical resource; under-scoped seeds can make one PDA authority cover unrelated resources. Some programs intentionally use a singleton/root PDA namespace; auditors should distinguish that stable namespace from mutable admin authority fields.
 
 ## Bad pattern
 
@@ -30,6 +30,7 @@ Use canonical `find_program_address`; in Anchor use `seeds = [...]` and `bump`; 
 - [ ] Is bump canonical or stored and verified?
 - [ ] Are seeds domain-separated and resource-scoped?
 - [ ] Can the same PDA sign for unrelated resources?
+- [ ] If child PDAs derive from a singleton/root authority, would owner transfer or future multi-instance changes orphan or alias that namespace?
 
 ## Public audit findings mapped to this pattern
 

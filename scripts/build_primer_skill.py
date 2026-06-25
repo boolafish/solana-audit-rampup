@@ -65,7 +65,7 @@ TRIGGERS = {
     "pda-bump": {
         "code_signals": ["find_program_address", "create_program_address", "seeds =", "bump", "Pubkey::find_program_address"],
         "protocols": ["any PDA-using program", "vaults", "PDA authorities"],
-        "concepts": ["user-supplied bump", "non-canonical bump accepted", "under-scoped seeds", "one PDA authority spanning unrelated resources"],
+        "concepts": ["user-supplied bump", "non-canonical bump accepted", "under-scoped seeds", "one PDA authority spanning unrelated resources", "singleton root PDA namespace confused with mutable admin authority"],
     },
     "arbitrary-cpi": {
         "code_signals": ["invoke(", "invoke_signed(", "Instruction {", "program_id:", "Program<", "Interface<", "AccountInfo"],
@@ -73,14 +73,14 @@ TRIGGERS = {
         "concepts": ["CPI target program passed by caller", "missing program id pin", "wrong token program accepted"],
     },
     "cpi-substitution": {
-        "code_signals": ["invoke_signed", "CpiContext", "with_signer", "token::transfer", "AccountMeta"],
-        "protocols": ["vaults", "lending", "router", "any PDA-signed CPI"],
-        "concepts": ["program signs over attacker-chosen accounts", "confused deputy", "callee accounts not validated before CPI"],
+        "code_signals": ["invoke_signed", "CpiContext", "with_signer", "token::transfer", "AccountMeta", "delegated_amount", "approve_checked"],
+        "protocols": ["vaults", "lending", "router", "any PDA-signed CPI", "PDA token delegates"],
+        "concepts": ["program signs over attacker-chosen accounts", "confused deputy", "callee accounts not validated before CPI", "PDA delegate approval/allowance is an off-chain setup dependency"],
     },
     "duplicate-mut": {
         "code_signals": ["#[account(mut", "AccountInfo", "constraint =", "key() !="],
         "protocols": ["transfers", "games", "two-account swap flows"],
-        "concepts": ["same account passed for two roles", "payer == recipient", "user_a == user_b aliasing"],
+        "concepts": ["same account passed for two roles", "payer == recipient", "user_a == user_b aliasing", "SPL self-transfer succeeds without moving value"],
     },
     "sysvar-spoof": {
         "code_signals": ["Sysvar<", "Clock::get", "Rent::get", "sysvar", "Instructions", "AccountInfo"],
@@ -88,19 +88,19 @@ TRIGGERS = {
         "concepts": ["sysvar passed as account without address check", "fake clock/rent/instructions account"],
     },
     "close-revival": {
-        "code_signals": ["close =", "lamports", "try_borrow_mut_lamports", "**", "AccountInfo"],
-        "protocols": ["any account-closing flow", "claims", "escrow"],
-        "concepts": ["manual close leaves data/discriminator valid", "same-transaction revival", "refund sent to wrong recipient"],
+        "code_signals": ["close =", "lamports", "try_borrow_mut_lamports", "**", "AccountInfo", "CloseAccount", "close_account"],
+        "protocols": ["any account-closing flow", "claims", "escrow", "queued settlement"],
+        "concepts": ["manual close leaves data/discriminator valid", "same-transaction revival", "refund sent to wrong recipient", "token account rent stranded after authority PDA closes"],
     },
     "realloc-rent": {
-        "code_signals": ["realloc", "realloc::payer", "realloc::zero", "Rent", "AccountInfo::realloc"],
+        "code_signals": ["realloc", "realloc::payer", "realloc::zero", "Rent", "AccountInfo::realloc", "#[max_len"],
         "protocols": ["growable accounts", "dynamic lists/queues"],
-        "concepts": ["resize without funding rent", "stale bytes after grow", "unbounded size growth"],
+        "concepts": ["resize without funding rent", "stale bytes after grow", "unbounded size growth", "Anchor max_len mistaken for runtime cap"],
     },
     "math": {
         "code_signals": ["checked_", "saturating_", "as u64", "as u128", "overflow-checks", "u128", " * ", " / "],
         "protocols": ["lending", "amm", "rewards", "any accounting"],
-        "concepts": ["unchecked arithmetic in optimized build", "division before multiplication", "decimal/exponent mismatch", "rounding exploited by repeated small actions"],
+        "concepts": ["unchecked arithmetic in optimized build", "multiply-before-divide overflow", "decimal/exponent mismatch", "rounding exploited by repeated small actions"],
     },
     "compute-dos": {
         "code_signals": ["remaining_accounts", "for ", ".iter()", "#[account(mut", "Vec<"],
@@ -108,14 +108,14 @@ TRIGGERS = {
         "concepts": ["unbounded loops", "global writable hot account serializes usage", "compute-budget exhaustion", "writable-account lock contention"],
     },
     "token2022": {
-        "code_signals": ["InterfaceAccount", "TokenInterface", "spl_token_2022", "transfer_fee", "transfer_hook", "get_account_data_size", "token::mint"],
+        "code_signals": ["InterfaceAccount", "TokenInterface", "spl_token_2022", "transfer_fee", "TransferFeeConfig", "transfer_hook", "get_account_data_size", "token::mint", "MintCloseAuthority", "DefaultAccountState", "PermanentDelegate"],
         "protocols": ["any token-handling program", "vaults", "amm", "lending"],
-        "concepts": ["transfer fee breaks balance accounting", "transfer hook reentrancy", "default-frozen accounts", "permanent delegate", "confidential transfer"],
+        "concepts": ["transfer fee breaks balance accounting", "transfer hook reentrancy", "default-frozen accounts", "permanent delegate", "confidential transfer", "mint close/recreate changes extension assumptions", "freeze authority creates liveness risk"],
     },
     "oracle-mev": {
-        "code_signals": ["price", "slippage", "min_out", "deadline", "Clock", "slot"],
-        "protocols": ["amm", "lending", "perps", "auctions", "liquidations"],
-        "concepts": ["no slippage / stale-quote protection", "ordering-sensitive flow", "private orderflow / Jito bundle assumptions", "liquidation ordering assumed deterministic"],
+        "code_signals": ["price", "slippage", "min_out", "deadline", "Clock", "slot", "quote_id"],
+        "protocols": ["amm", "lending", "perps", "auctions", "liquidations", "signed quotes"],
+        "concepts": ["no slippage / stale-quote protection", "ordering-sensitive flow", "private orderflow / Jito bundle assumptions", "liquidation ordering assumed deterministic", "independent fresh quotes can be mixed"],
     },
     "upgrade-admin": {
         "code_signals": ["upgrade_authority", "set_authority", "BpfLoaderUpgradeable", "admin", "authority"],
@@ -143,9 +143,9 @@ TRIGGERS = {
         "concepts": ["post-CPI invariant checked against pre-CPI cached field", "missing reload() after CPI"],
     },
     "signature-introspection": {
-        "code_signals": ["load_instruction_at_checked", "ed25519", "secp256k1", "sysvar::instructions", "load_current_index"],
-        "protocols": ["bridges", "meta-transactions", "permit-style flows", "off-chain signed orders"],
-        "concepts": ["checks a signature instruction exists but not payload/signer/index", "missing domain/nonce/expiry binding"],
+        "code_signals": ["load_instruction_at_checked", "ed25519", "secp256k1", "sysvar::instructions", "instructions_sysvar", "load_current_index", "relative_offset", "verify_ed25519_ix_at_relative_offset", "Ed25519SignatureOffsets", "trusted_signers", "quote_id"],
+        "protocols": ["bridges", "meta-transactions", "permit-style flows", "off-chain signed orders", "oracle attestations"],
+        "concepts": ["checks a signature instruction exists but not payload/signer/index", "missing domain/nonce/expiry binding", "transaction signer confused with trusted off-chain signer", "attestation freshness vs permit nonce asymmetry", "signed quote mistaken for spend authorization"],
     },
     "insecure-randomness": {
         "code_signals": ["Clock::get", "slot", "unix_timestamp", "recent_blockhashes", " % "],
@@ -213,9 +213,9 @@ TRIGGERS = {
         "concepts": ["repeated find_program_address inside a loop", "switching to a client-supplied bump to save compute", "stored bump not re-verified against the PDA address"],
     },
     "seed-prefix-collision": {
-        "code_signals": ["seeds =", "find_program_address", "b\"vault\"", "UncheckedAccount"],
-        "protocols": ["programs with multiple PDA account types"],
-        "concepts": ["shared seed shape across account types", "weak or duplicated static prefix", "type/discriminator not verified after derivation"],
+        "code_signals": ["seeds =", "find_program_address", "b\"vault\"", "UncheckedAccount", "sha256", "format!"],
+        "protocols": ["programs with multiple PDA account types", "cross-chain registries", "admin registries"],
+        "concepts": ["shared seed shape across account types", "weak or duplicated static prefix", "type/discriminator not verified after derivation", "variable-length fields concatenated without length prefix or delimiter"],
     },
     "instructions-sysvar-introspection": {
         "code_signals": ["sysvar::instructions", "load_current_index_checked", "load_instruction_at_checked", "Sysvar1nstructions"],
@@ -230,7 +230,7 @@ PLAYBOOKS = [
     ("Lending / perps / collateral", ["lending", "perps", "collateral", "stablecoin"]),
     ("AMM / DEX / swaps", ["amm", "dex", "swap"]),
     ("Vaults / escrow / staking", ["vault", "escrow", "staking", "stake"]),
-    ("Bridges / cross-chain / messaging", ["bridge", "cross-chain", "messaging", "meta-transaction", "signed order"]),
+    ("Bridges / cross-chain / messaging", ["bridge", "bridges", "cross-chain", "messaging", "meta-transaction", "meta-transactions", "signed order", "signed orders", "off-chain signed order", "off-chain signed orders", "oracle attestations"]),
     ("Governance / multisig / admin", ["governance", "multisig", "dao", "admin", "upgrade"]),
     ("Routers / aggregators", ["router", "aggregator"]),
     ("Games / lottery / NFT", ["lottery", "raffle", "game", "nft"]),
@@ -515,6 +515,7 @@ protecting and who can touch it, so that the pattern catalog in
 - **Toolchain:** Anchor version, `solana-program`/SPL crate versions, `overflow-checks` setting.
 - **Token model:** classic SPL Token, Token-2022, or both? Which extensions are accepted?
 - **External programs called via CPI** (token, system, ATA, oracle, lending, AMM, governance).
+- **Live value path vs. residue:** which programs/instructions are load-bearing today, and which are admin-only, deprecated, off-chain-only, or compatibility surface?
 
 ## 2. Assets
 
@@ -530,8 +531,9 @@ What can be stolen, frozen, inflated, or destroyed?
 
 - **Permissionless users** — assume fully adversarial; they supply *all* accounts and instruction data.
 - **Privileged roles** — admin, upgrade authority, governance, multisig, oracle publishers, keepers/liquidators.
+- **Off-chain signers / issuers / relayers** — distinguish the transaction signer/user from a trusted Ed25519 signer, oracle publisher, quote issuer, keeper, API service, or off-chain registry consumer.
 - **Composability** — other programs that CPI into this one, or that this one CPIs into.
-- For each privileged role: what is the blast radius if its key is compromised?
+- For each privileged role: what is the blast radius if its key is compromised? What can it mint, burn, freeze, pause, route, price, or settle without also controlling a user wallet?
 
 ## 4. Per-instruction account-validation matrix
 
@@ -539,17 +541,20 @@ For every instruction, for every account, record: signer? writable? expected
 owner/program? executable? PDA seeds + canonical/stored bump? discriminator/type/version?
 relationship checks (`has_one`, pool/user/mint/market/config links)? token checks
 (program, mint, authority, ATA, delegate/close/freeze, Token-2022 extensions)?
-sysvar address check? This matrix is where most Solana bugs surface.
+sysvar address check? close/refund recipient? terminal cleanup? This matrix is where most Solana bugs surface.
 
 ## 5. Adversarial questions
 
 - Can I substitute another valid account of the same type (wrong user/pool/mint)?
 - Can I build fake accounts that only cross-check against each other?
-- Can I pass the same writable account for two logical roles?
+- Can I pass the same writable account for two logical roles, or make a token transfer a successful same-account no-op?
 - Can I reorder, omit, or duplicate accounts (including `remaining_accounts`)?
 - Can I choose the CPI target program or the CPI's accounts?
 - Can I reinitialize, close-and-revive, or realloc to corrupt state?
-- Can stale or low-liquidity oracle data inflate value?
+- Can stale, independent, or unpaired quotes/attestations inflate value?
+- Are signed messages bound to the exact program, action, subject/source, recipient, token side, amount, nonce/sequence, expiry, and quote set the handler uses? Which signed object authorizes spending versus only supplies price/lineage?
+- Can a mint freeze authority, close authority, transfer hook, delegate, or off-chain custody movement wedge a queued/settlement flow?
+- After terminal actions, are state PDAs, escrow token accounts, pending markers, and rent refunds in the intended final state?
 - Can a privileged path bypass timelock/threshold/normal controls?
 
 ## 6. Map to patterns

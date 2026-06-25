@@ -41,6 +41,7 @@ Grep the target program. If a token appears, consider the listed patterns. Very 
 | `#[account(mut` | [`duplicate-mut`](references/duplicate-mut.md), [`compute-dos`](references/compute-dos.md) |
 | `#[account(owner` | [`missing-owner`](references/missing-owner.md) |
 | `#[account(signer` | [`missing-signer`](references/missing-signer.md) |
+| `#[max_len` | [`realloc-rent`](references/realloc-rent.md) |
 | `**` | [`close-revival`](references/close-revival.md) |
 | `.amount` | [`stale-cpi-reload`](references/stale-cpi-reload.md) |
 | `.data.borrow()` | [`missing-owner`](references/missing-owner.md) |
@@ -58,6 +59,7 @@ Grep the target program. If a token appears, consider the listed patterns. Very 
 | `add_lamports` | [`native-sol-lamports`](references/native-sol-lamports.md) |
 | `admin` | [`upgrade-admin`](references/upgrade-admin.md) |
 | `anchor-lang = "0.28` | [`anchor-0.28-deltas`](references/anchor-0.28-deltas.md) |
+| `approve_checked` | [`cpi-substitution`](references/cpi-substitution.md) |
 | `as u128` | [`math`](references/math.md) |
 | `as u64` | [`math`](references/math.md) |
 | `authority` | [`upgrade-admin`](references/upgrade-admin.md) |
@@ -71,6 +73,8 @@ Grep the target program. If a token appears, consider the listed patterns. Very 
 | `Clock` | [`oracle-mev`](references/oracle-mev.md) |
 | `Clock::get` | [`sysvar-spoof`](references/sysvar-spoof.md), [`insecure-randomness`](references/insecure-randomness.md) |
 | `close =` | [`close-revival`](references/close-revival.md) |
+| `close_account` | [`close-revival`](references/close-revival.md) |
+| `CloseAccount` | [`close-revival`](references/close-revival.md) |
 | `confidence` | [`oracle-validation`](references/oracle-validation.md) |
 | `constraint =` | [`duplicate-mut`](references/duplicate-mut.md) |
 | `CpiContext` | [`cpi-substitution`](references/cpi-substitution.md), [`stale-cpi-reload`](references/stale-cpi-reload.md) |
@@ -78,12 +82,16 @@ Grep the target program. If a token appears, consider the listed patterns. Very 
 | `ctx.remaining_accounts` | [`remaining-accounts`](references/remaining-accounts.md) |
 | `data[` | [`native-parser-hazards`](references/native-parser-hazards.md), [`raw-byte-pda-decoding`](references/raw-byte-pda-decoding.md) |
 | `deadline` | [`oracle-mev`](references/oracle-mev.md) |
+| `DefaultAccountState` | [`token2022`](references/token2022.md) |
+| `delegated_amount` | [`cpi-substitution`](references/cpi-substitution.md) |
 | `discriminator` | [`type-cosplay`](references/type-cosplay.md) |
 | `ed25519` | [`signature-introspection`](references/signature-introspection.md) |
+| `Ed25519SignatureOffsets` | [`signature-introspection`](references/signature-introspection.md) |
 | `emit!` | [`event-log-reliance`](references/event-log-reliance.md) |
 | `emit_cpi` | [`event-log-reliance`](references/event-log-reliance.md) |
 | `find_program_address` | [`pda-bump`](references/pda-bump.md), [`find-program-address-cu-cost`](references/find-program-address-cu-cost.md), [`seed-prefix-collision`](references/seed-prefix-collision.md) |
 | `fn try_accounts` | [`manual-try-accounts`](references/manual-try-accounts.md) |
+| `format!` | [`seed-prefix-collision`](references/seed-prefix-collision.md) |
 | `from_bytes` | [`zero-copy-layout`](references/zero-copy-layout.md) |
 | `get_account_data_size` | [`token2022`](references/token2022.md) |
 | `get_price` | [`oracle-validation`](references/oracle-validation.md) |
@@ -94,6 +102,7 @@ Grep the target program. If a token appears, consider the listed patterns. Very 
 | `initialize` | [`reinit`](references/reinit.md) |
 | `Instruction {` | [`arbitrary-cpi`](references/arbitrary-cpi.md) |
 | `Instructions` | [`sysvar-spoof`](references/sysvar-spoof.md) |
+| `instructions_sysvar` | [`signature-introspection`](references/signature-introspection.md) |
 | `Interface<` | [`arbitrary-cpi`](references/arbitrary-cpi.md), [`anchor-token-interface`](references/anchor-token-interface.md) |
 | `InterfaceAccount` | [`token2022`](references/token2022.md), [`anchor-token-interface`](references/anchor-token-interface.md) |
 | `invoke` | [`stale-cpi-reload`](references/stale-cpi-reload.md) |
@@ -114,6 +123,7 @@ Grep the target program. If a token appears, consider the listed patterns. Very 
 | `loop` | [`find-program-address-cu-cost`](references/find-program-address-cu-cost.md) |
 | `min_out` | [`oracle-mev`](references/oracle-mev.md) |
 | `mint::token_program` | [`anchor-token-interface`](references/anchor-token-interface.md) |
+| `MintCloseAuthority` | [`token2022`](references/token2022.md) |
 | `msg!` | [`event-log-reliance`](references/event-log-reliance.md) |
 | `multisig` | [`governance-timelock`](references/governance-timelock.md) |
 | `next_account_info` | [`remaining-accounts`](references/remaining-accounts.md), [`native-parser-hazards`](references/native-parser-hazards.md), [`manual-try-accounts`](references/manual-try-accounts.md) |
@@ -121,6 +131,7 @@ Grep the target program. If a token appears, consider the listed patterns. Very 
 | `overflow-checks` | [`math`](references/math.md) |
 | `owner ==` | [`missing-owner`](references/missing-owner.md) |
 | `payer =` | [`anchor-0.28-deltas`](references/anchor-0.28-deltas.md) |
+| `PermanentDelegate` | [`token2022`](references/token2022.md) |
 | `Pod` | [`zero-copy-layout`](references/zero-copy-layout.md) |
 | `price` | [`oracle-mev`](references/oracle-mev.md) |
 | `price_feed` | [`oracle-validation`](references/oracle-validation.md) |
@@ -131,11 +142,13 @@ Grep the target program. If a token appears, consider the listed patterns. Very 
 | `Pubkey::new_from_array` | [`native-parser-hazards`](references/native-parser-hazards.md), [`raw-byte-pda-decoding`](references/raw-byte-pda-decoding.md) |
 | `publish_time` | [`oracle-validation`](references/oracle-validation.md) |
 | `Pyth` | [`oracle-validation`](references/oracle-validation.md) |
+| `quote_id` | [`oracle-mev`](references/oracle-mev.md), [`signature-introspection`](references/signature-introspection.md) |
 | `realloc` | [`realloc-rent`](references/realloc-rent.md) |
 | `realloc::payer` | [`realloc-rent`](references/realloc-rent.md) |
 | `realloc::zero` | [`realloc-rent`](references/realloc-rent.md) |
 | `Realms` | [`governance-timelock`](references/governance-timelock.md) |
 | `recent_blockhashes` | [`insecure-randomness`](references/insecure-randomness.md) |
+| `relative_offset` | [`signature-introspection`](references/signature-introspection.md) |
 | `reload()` | [`stale-cpi-reload`](references/stale-cpi-reload.md) |
 | `remaining_accounts` | [`compute-dos`](references/compute-dos.md), [`remaining-accounts`](references/remaining-accounts.md), [`remaining-accounts-trust`](references/remaining-accounts-trust.md) |
 | `Rent` | [`realloc-rent`](references/realloc-rent.md) |
@@ -146,6 +159,7 @@ Grep the target program. If a token appears, consider the listed patterns. Very 
 | `secp256k1` | [`signature-introspection`](references/signature-introspection.md) |
 | `seeds =` | [`pda-bump`](references/pda-bump.md), [`seed-prefix-collision`](references/seed-prefix-collision.md) |
 | `set_authority` | [`upgrade-admin`](references/upgrade-admin.md) |
+| `sha256` | [`seed-prefix-collision`](references/seed-prefix-collision.md) |
 | `Signer<` | [`missing-signer`](references/missing-signer.md), [`anchor-0.28-deltas`](references/anchor-0.28-deltas.md) |
 | `slippage` | [`oracle-mev`](references/oracle-mev.md) |
 | `slot` | [`oracle-mev`](references/oracle-mev.md), [`insecure-randomness`](references/insecure-randomness.md) |
@@ -169,6 +183,8 @@ Grep the target program. If a token appears, consider the listed patterns. Very 
 | `TokenInterface` | [`token2022`](references/token2022.md), [`anchor-token-interface`](references/anchor-token-interface.md) |
 | `transfer_fee` | [`token2022`](references/token2022.md) |
 | `transfer_hook` | [`token2022`](references/token2022.md) |
+| `TransferFeeConfig` | [`token2022`](references/token2022.md) |
+| `trusted_signers` | [`signature-introspection`](references/signature-introspection.md) |
 | `try_borrow_mut_lamports` | [`close-revival`](references/close-revival.md), [`native-sol-lamports`](references/native-sol-lamports.md) |
 | `try_from_slice` | [`missing-owner`](references/missing-owner.md), [`type-cosplay`](references/type-cosplay.md) |
 | `try_from_slice_unchecked` | [`missing-owner`](references/missing-owner.md), [`native-parser-hazards`](references/native-parser-hazards.md) |
@@ -179,6 +195,7 @@ Grep the target program. If a token appears, consider the listed patterns. Very 
 | `unpack` | [`native-parser-hazards`](references/native-parser-hazards.md) |
 | `upgrade_authority` | [`upgrade-admin`](references/upgrade-admin.md) |
 | `Vec<` | [`compute-dos`](references/compute-dos.md) |
+| `verify_ed25519_ix_at_relative_offset` | [`signature-introspection`](references/signature-introspection.md) |
 | `with_signer` | [`cpi-substitution`](references/cpi-substitution.md) |
 | `WSOL` | [`native-sol-lamports`](references/native-sol-lamports.md) |
 | `zero_copy` | [`zero-copy-layout`](references/zero-copy-layout.md) |
@@ -214,12 +231,20 @@ Match the target to one or more protocol types, then prioritize these patterns (
 - [Native SOL lamport accounting bugs](references/native-sol-lamports.md) (`native-sol-lamports`, High)
 - [Manual deserialization, offsets, and versioned account layouts](references/native-parser-hazards.md) (`native-parser-hazards`, Medium)
 
+### Bridges / cross-chain / messaging
+
+- [Instruction introspection / signature verification misuse](references/signature-introspection.md) (`signature-introspection`, Critical)
+- [Seed-prefix collision and PDA type confusion](references/seed-prefix-collision.md) (`seed-prefix-collision`, High)
+- [Instructions sysvar introspection mistakes](references/instructions-sysvar-introspection.md) (`instructions-sysvar-introspection`, High)
+
 ### Governance / multisig / admin
 
 - [Missing signer authorization](references/missing-signer.md) (`missing-signer`, Critical)
+- [PDA seed/bump mistakes and non-canonical bumps](references/pda-bump.md) (`pda-bump`, High)
 - [Upgrade authority and admin controls](references/upgrade-admin.md) (`upgrade-admin`, High)
 - [Zero-copy / bytemuck / POD layout hazards](references/zero-copy-layout.md) (`zero-copy-layout`, Medium)
 - [Governance, multisig, and timelock validation gaps](references/governance-timelock.md) (`governance-timelock`, High)
+- [Seed-prefix collision and PDA type confusion](references/seed-prefix-collision.md) (`seed-prefix-collision`, High)
 
 ### Routers / aggregators
 
@@ -277,7 +302,7 @@ Match the target to one or more protocol types, then prioritize these patterns (
 
 | Pattern | Severity | What it is | Top code signals |
 | --- | --- | --- | --- |
-| [Duplicate mutable accounts / aliasing](references/duplicate-mut.md) | High | The same account key can be supplied for multiple account parameters unless constrained. | `#[account(mut`, `AccountInfo`, `constraint =`, `key() !=` |
+| [Duplicate mutable accounts / aliasing](references/duplicate-mut.md) | High | The same account key can be supplied for multiple account parameters unless constrained; mutable aliases can break debit/credit or game logic. | `#[account(mut`, `AccountInfo`, `constraint =`, `key() !=` |
 | [Sysvar spoofing](references/sysvar-spoof.md) | High | Sysvars can be accessed via trusted APIs or passed as accounts. | `Sysvar<`, `Clock::get`, `Rent::get`, `sysvar` |
 | [Instruction introspection / signature verification misuse](references/signature-introspection.md) | Critical | Solana often verifies Ed25519/secp signatures by including a verification instruction and reading the Instructions sysvar. | `load_instruction_at_checked`, `ed25519`, `secp256k1`, `sysvar::instructions` |
 | [Instructions sysvar introspection mistakes](references/instructions-sysvar-introspection.md) | High | The Instructions sysvar exposes transaction instructions. | `sysvar::instructions`, `load_current_index_checked`, `load_instruction_at_checked`, `Sysvar1nstructions` |

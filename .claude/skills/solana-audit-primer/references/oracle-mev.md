@@ -5,31 +5,33 @@
 
 ## Triggers — load this page when you see these
 
-**Code signals (grep the target):** `price`, `slippage`, `min_out`, `deadline`, `Clock`, `slot`
+**Code signals (grep the target):** `price`, `slippage`, `min_out`, `deadline`, `Clock`, `slot`, `quote_id`
 
-**Protocol types:** amm, lending, perps, auctions, liquidations
+**Protocol types:** amm, lending, perps, auctions, liquidations, signed quotes
 
-**Concepts:** no slippage / stale-quote protection; ordering-sensitive flow; private orderflow / Jito bundle assumptions; liquidation ordering assumed deterministic
+**Concepts:** no slippage / stale-quote protection; ordering-sensitive flow; private orderflow / Jito bundle assumptions; liquidation ordering assumed deterministic; independent fresh quotes can be mixed
 
 ## Why this differs from Solidity/EVM
 
 Familiar DeFi class, but Solana has no Ethereum-style public mempool; MEV still exists via leaders, priority fees, private orderflow, Jito/bundles, and ordering-sensitive flows.
 
-Solana has no globally gossiped Ethereum-style public mempool, but pending orderflow is not guaranteed private. Transactions may be visible to RPC providers, leaders/validators, relays/block engines, searchers, or private orderflow partners. Ordering-sensitive protocols should be treated as MEV-exposed unless deployment has documented protections.
+Solana has no globally gossiped Ethereum-style public mempool, but pending orderflow is not guaranteed private. Transactions may be visible to RPC providers, leaders/validators, relays/block engines, searchers, or private orderflow partners. Ordering-sensitive protocols should be treated as MEV-exposed unless deployment has documented protections. Fresh signed quotes can still compose badly if the program accepts independent attestations that were not meant to share one conversion or swap.
 
 ## Bad pattern
 
-No slippage/stale quote checks; lending accepts spot price without freshness/confidence/liquidity bounds; liquidation logic assumes deterministic ordering.
+Accept a price, quote, or attestation that is fresh but not bound to the amount, token side, direction, or paired quote set used in the action; allow independent fresh quotes to be mixed in one conversion or round trip.
 
 ## Good pattern
 
-Require slippage limits, oracle freshness/confidence checks, liquidity-aware risk parameters, TWAP/limits/circuit breakers where appropriate, robust liquidation ordering assumptions, and replay/nonce/domain checks.
+Bind quote/price data to the action: consumer, direction, input/output assets, amount, quote id or paired quote set, validity window, and nonce when one-time use is intended. If attestations are intentionally reusable, make the freshness window and off-chain issuance policy explicit trust assumptions.
 
 ## Audit checks
 
 - [ ] Are oracle feeds correct, fresh, and confidence-bounded?
 - [ ] Can price updates/trades/liquidations be reordered profitably?
 - [ ] Are priority fees/bundles/private orderflow assumptions documented?
+- [ ] Can two individually fresh quotes with different indexes be paired to skew a conversion?
+- [ ] Is quote id merely lineage, or is it checked/consumed/bound across both legs?
 
 ## Real incidents mapped to this pattern
 

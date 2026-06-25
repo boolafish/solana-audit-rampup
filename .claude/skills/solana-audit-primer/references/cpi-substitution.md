@@ -5,17 +5,17 @@
 
 ## Triggers — load this page when you see these
 
-**Code signals (grep the target):** `invoke_signed`, `CpiContext`, `with_signer`, `token::transfer`, `AccountMeta`
+**Code signals (grep the target):** `invoke_signed`, `CpiContext`, `with_signer`, `token::transfer`, `AccountMeta`, `delegated_amount`, `approve_checked`
 
-**Protocol types:** vaults, lending, router, any PDA-signed CPI
+**Protocol types:** vaults, lending, router, any PDA-signed CPI, PDA token delegates
 
-**Concepts:** program signs over attacker-chosen accounts; confused deputy; callee accounts not validated before CPI
+**Concepts:** program signs over attacker-chosen accounts; confused deputy; callee accounts not validated before CPI; PDA delegate approval/allowance is an off-chain setup dependency
 
 ## Why this differs from Solidity/EVM
 
 Like approving/transferring from an unintended vault because callee accounts were attacker-selected.
 
-Even when CPI program ID is correct, the caller supplies all callee accounts. Your program may sign with a PDA over attacker-chosen accounts.
+Even when CPI program ID is correct, the caller supplies all callee accounts. Your program may sign with a PDA over attacker-chosen accounts. PDA-signed token flows may also depend on off-chain delegate approvals; those are operational trust boundaries even when account validation is correct.
 
 ## Bad pattern
 
@@ -30,6 +30,7 @@ Before CPI, validate every account: token program, source/dest address or ATA de
 - [ ] Could attacker make the program sign over a different token account?
 - [ ] Are CPI account metas exactly the validated accounts?
 - [ ] Are post-CPI balances/invariants rechecked where needed?
+- [ ] When a PDA signs as token delegate, is the delegate approval/allowance an explicit setup assumption and rechecked live before release?
 
 ## Real incidents mapped to this pattern
 

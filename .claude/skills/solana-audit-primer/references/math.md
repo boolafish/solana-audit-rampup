@@ -9,27 +9,29 @@
 
 **Protocol types:** lending, amm, rewards, any accounting
 
-**Concepts:** unchecked arithmetic in optimized build; division before multiplication; decimal/exponent mismatch; rounding exploited by repeated small actions
+**Concepts:** unchecked arithmetic in optimized build; multiply-before-divide overflow; decimal/exponent mismatch; rounding exploited by repeated small actions
 
 ## Why this differs from Solidity/EVM
 
 Familiar from Solidity, but Rust release behavior, u64 token amounts, and fixed-point conventions differ.
 
-Unlike Solidity 0.8 checked arithmetic, Rust primitive integer overflow is not automatically safe in optimized Solana program builds unless overflow checks or checked/saturating APIs are used. Lamports/token amounts are often `u64`; prices and rewards need `u128` intermediates, explicit rounding, and decimal normalization.
+Unlike Solidity 0.8 checked arithmetic, Rust primitive integer overflow is not automatically safe in optimized Solana program builds unless overflow checks or checked/saturating APIs are used. Lamports/token amounts are often `u64`; prices and rewards need `u128` intermediates, explicit rounding, and decimal normalization. Even checked math can fail availability if the formula multiplies large decimal/index factors before a later division would reduce the value.
 
 ## Bad pattern
 
-`amount * price / scale` in u64; division before multiplication; no checked math; token decimals assumed identical.
+Use unchecked integer ops, cast down with `as`, divide before multiplying when precision matters, or multiply all decimal/index terms first so ordinary supported amounts overflow before reduction.
 
 ## Good pattern
 
-Use `checked_*`, `u128` intermediates, explicit rounding direction, decimal bounds, invariant tests/fuzzing.
+Use checked arithmetic and a formula that reduces factors or performs full-precision `mul_div` while preserving the intended rounding direction. Bound supported decimals and price-index ranges together, then test maximum supported combinations.
 
 ## Audit checks
 
 - [ ] Any unchecked arithmetic?
 - [ ] Are token decimals and oracle decimals normalized?
 - [ ] Can repeated small actions exploit rounding?
+- [ ] Can checked multiplication overflow for supported decimals/indexes before a later division would reduce the value?
+- [ ] Are supported mint decimals and oracle index ranges jointly safe, not just individually bounded?
 
 ## Real incidents mapped to this pattern
 

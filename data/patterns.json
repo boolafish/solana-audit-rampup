@@ -218,13 +218,14 @@
     "severity": "High",
     "title": "PDA seed/bump mistakes and non-canonical bumps",
     "solidity": "Roughly comparable to deterministic CREATE2 addresses, but PDAs are also signing authorities for CPIs.",
-    "difference": "PDA derivation includes seeds and a bump. Allowing arbitrary valid bumps can create multiple valid PDA addresses for one logical resource; under-scoped seeds can make one PDA authority cover unrelated resources.",
+    "difference": "PDA derivation includes seeds and a bump. Allowing arbitrary valid bumps can create multiple valid PDA addresses for one logical resource; under-scoped seeds can make one PDA authority cover unrelated resources. Some programs intentionally use a singleton/root PDA namespace; auditors should distinguish that stable namespace from mutable admin authority fields.",
     "bad": "Accept user-provided bump with `create_program_address`; use seeds like `[b\"vault\"]` globally for many assets.",
     "good": "Use canonical `find_program_address`; in Anchor use `seeds = [...]` and `bump`; store bump when reused; include domain prefix plus user/pool/mint/resource in seeds.",
     "checks": [
       "Is bump canonical or stored and verified?",
       "Are seeds domain-separated and resource-scoped?",
-      "Can the same PDA sign for unrelated resources?"
+      "Can the same PDA sign for unrelated resources?",
+      "If child PDAs derive from a singleton/root authority, would owner transfer or future multi-instance changes orphan or alias that namespace?"
     ],
     "refs": [
       "https://solana.com/docs/core/pda",
@@ -248,7 +249,8 @@
         "user-supplied bump",
         "non-canonical bump accepted",
         "under-scoped seeds",
-        "one PDA authority spanning unrelated resources"
+        "one PDA authority spanning unrelated resources",
+        "singleton root PDA namespace confused with mutable admin authority"
       ]
     }
   },
@@ -305,13 +307,14 @@
     "severity": "Critical",
     "title": "CPI account substitution / confused deputy",
     "solidity": "Like approving/transferring from an unintended vault because callee accounts were attacker-selected.",
-    "difference": "Even when CPI program ID is correct, the caller supplies all callee accounts. Your program may sign with a PDA over attacker-chosen accounts.",
+    "difference": "Even when CPI program ID is correct, the caller supplies all callee accounts. Your program may sign with a PDA over attacker-chosen accounts. PDA-signed token flows may also depend on off-chain delegate approvals; those are operational trust boundaries even when account validation is correct.",
     "bad": "Program signs SPL Token transfer from `source` to `dest` without verifying `source` is protocol vault, mint matches, and authority is the intended PDA.",
     "good": "Before CPI, validate every account: token program, source/dest address or ATA derivation, mint, authority, PDA seeds, delegate/close authority if relevant.",
     "checks": [
       "Could attacker make the program sign over a different token account?",
       "Are CPI account metas exactly the validated accounts?",
-      "Are post-CPI balances/invariants rechecked where needed?"
+      "Are post-CPI balances/invariants rechecked where needed?",
+      "When a PDA signs as token delegate, is the delegate approval/allowance an explicit setup assumption and rechecked live before release?"
     ],
     "refs": [
       "https://solana.com/docs/core/cpi",
@@ -323,18 +326,22 @@
         "CpiContext",
         "with_signer",
         "token::transfer",
-        "AccountMeta"
+        "AccountMeta",
+        "delegated_amount",
+        "approve_checked"
       ],
       "protocols": [
         "vaults",
         "lending",
         "router",
-        "any PDA-signed CPI"
+        "any PDA-signed CPI",
+        "PDA token delegates"
       ],
       "concepts": [
         "program signs over attacker-chosen accounts",
         "confused deputy",
-        "callee accounts not validated before CPI"
+        "callee accounts not validated before CPI",
+        "PDA delegate approval/allowance is an off-chain setup dependency"
       ]
     }
   },
@@ -344,13 +351,15 @@
     "severity": "High",
     "title": "Duplicate mutable accounts / aliasing",
     "solidity": "Similar to passing the same address as two roles in a function that assumes distinct addresses.",
-    "difference": "The same account key can be supplied for multiple account parameters unless constrained; mutable aliases can break debit/credit or game logic.",
-    "bad": "`transfer_rewards(from, to)` assumes two accounts but attacker passes same account for both.",
-    "good": "Add explicit `a.key() != b.key()` constraints for all roles that must be distinct. Some Anchor versions/account types reject duplicate mutable accounts during validation, but do not rely on framework behavior for business-logic distinctness, especially with `UncheckedAccount`, `AccountInfo`, interface accounts, or `remaining_accounts`.",
+    "difference": "The same account key can be supplied for multiple account parameters unless constrained; mutable aliases can break debit/credit or game logic. SPL token self-transfers can validate and return success without moving value, so distinctness can be economically relevant even when account constraints pass.",
+    "bad": "Pass the same mutable account for two logical roles such as payer/recipient, input/output vault, depositor/custody beneficiary, or debit/credit token account.",
+    "good": "Reject aliasing with explicit key inequality for roles that must be economically distinct, and assert balance deltas in tests for transfers that are supposed to move value.",
     "checks": [
       "Which accounts are assumed distinct?",
       "Can payer==recipient, vault==user token account, user_a==user_b?",
-      "Does Anchor typed mut duplicate protection cover this exact case?"
+      "Does Anchor typed mut duplicate protection cover this exact case?",
+      "Can an SPL token transfer be a same-account self-transfer that succeeds without moving value?",
+      "Do later mint/burn/accounting steps rely on a prior transfer having changed custody balances?"
     ],
     "refs": [
       "https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/duplicate-mutable-accounts.md",
@@ -371,7 +380,8 @@
       "concepts": [
         "same account passed for two roles",
         "payer == recipient",
-        "user_a == user_b aliasing"
+        "user_a == user_b aliasing",
+        "SPL self-transfer succeeds without moving value"
       ]
     }
   },
@@ -418,13 +428,16 @@
     "severity": "High",
     "title": "Account close, revival, and stale data",
     "solidity": "Similar to selfdestruct/recreate or stale storage assumptions, but account lamports/data/owner make it Solana-specific.",
-    "difference": "Closing usually transfers lamports and resets/assigns account. Manual closes can leave data/discriminator valid; same transaction composition can revive accounts.",
-    "bad": "Drain lamports but leave owner/data/discriminator as valid state, then later logic trusts stale data after refund.",
-    "good": "Prefer Anchor `close = recipient` and verify exact semantics for the Anchor version in scope. For manual close logic, clear or invalidate data, transfer/refund lamports intentionally, handle owner/realloc as appropriate for the account type, and ensure no later same-transaction logic trusts the closed account.",
+    "difference": "Closing usually transfers lamports and resets/assigns account. Manual closes can leave data/discriminator valid; same transaction composition can revive accounts. Token accounts and ATAs are not closed by Anchor state-account `close`; they require Token Program `CloseAccount`, and can be stranded if their PDA authority state is closed first.",
+    "bad": "Drain lamports but leave owner/data/discriminator as valid state; close rent to an operator when the user paid it without documenting the fee; or settle an escrow while leaving a zero-balance token account open under an authority PDA that is about to be closed.",
+    "good": "Use Anchor `close = recipient` intentionally for program-owned state, and close SPL token accounts separately with `CloseAccount` before their authority PDA becomes unreachable. Identify the original payer or intended rent recipient for each close path.",
     "checks": [
       "Are closed accounts impossible to reuse later in the same transaction?",
       "Does close reset discriminator/data?",
-      "Are refunds sent to the intended recipient?"
+      "Are refunds sent to the intended recipient?",
+      "For every terminal action, are related token accounts/ATAs closed or intentionally left reclaimable?",
+      "Does closing a PDA state account strand rent in token accounts whose authority is that PDA?",
+      "Is the close recipient the account payer/user, or is operator/admin rent capture intended and disclosed?"
     ],
     "refs": [
       "https://github.com/solana-foundation/developer-content/blob/main/content/courses/program-security/closing-accounts.md",
@@ -436,17 +449,21 @@
         "lamports",
         "try_borrow_mut_lamports",
         "**",
-        "AccountInfo"
+        "AccountInfo",
+        "CloseAccount",
+        "close_account"
       ],
       "protocols": [
         "any account-closing flow",
         "claims",
-        "escrow"
+        "escrow",
+        "queued settlement"
       ],
       "concepts": [
         "manual close leaves data/discriminator valid",
         "same-transaction revival",
-        "refund sent to wrong recipient"
+        "refund sent to wrong recipient",
+        "token account rent stranded after authority PDA closes"
       ]
     }
   },
@@ -456,13 +473,14 @@
     "severity": "Medium",
     "title": "Rent-exemption and realloc/storage resizing edge cases",
     "solidity": "Solidity storage expansion is paid by gas; Solana account data size and rent-exempt lamports are explicit state.",
-    "difference": "Growing/shrinking accounts changes required rent-exempt minimum balance and may expose stale bytes. In current Solana practice, rent usually means minimum balance for data storage, not an Ethereum-like recurring storage fee; `rent_epoch` is rarely a useful security signal without version-specific justification.",
-    "bad": "Manual `realloc` larger without funding rent, cap checks, or zeroing new bytes; shrink/grow causing type confusion or stale sensitive data.",
-    "good": "Use Anchor `realloc`, `realloc::payer`, `realloc::zero`; recompute rent; cap size; use checked math for space calculations.",
+    "difference": "Growing/shrinking accounts changes required rent-exempt minimum balance and may expose stale bytes. In current Solana practice, rent usually means minimum balance for data storage, not an Ethereum-like recurring storage fee; `rent_epoch` is rarely a useful security signal without version-specific justification. Anchor `#[max_len]` sizes account space; it does not by itself cap later exact-fit reallocations.",
+    "bad": "Grow dynamic accounts without funding rent, zeroing policy, explicit runtime length caps, or checked space math; assume `#[max_len]` prevents later `realloc` growth.",
+    "good": "Fund rent deltas, use `realloc::zero` when old bytes matter, add explicit max-length constraints before growth, and test grow/shrink cycles. Treat `#[max_len]` as space metadata, not a runtime cap.",
     "checks": [
       "Who pays extra rent?",
       "Is new size bounded and computed with checked arithmetic?",
-      "Are newly allocated bytes zeroed if read later?"
+      "Are newly allocated bytes zeroed if read later?",
+      "Does `#[max_len]` only size the initial account while later `realloc` paths can exceed the intended cap?"
     ],
     "refs": [
       "https://solana.com/docs/core/accounts",
@@ -474,7 +492,8 @@
         "realloc::payer",
         "realloc::zero",
         "Rent",
-        "AccountInfo::realloc"
+        "AccountInfo::realloc",
+        "#[max_len"
       ],
       "protocols": [
         "growable accounts",
@@ -483,7 +502,8 @@
       "concepts": [
         "resize without funding rent",
         "stale bytes after grow",
-        "unbounded size growth"
+        "unbounded size growth",
+        "Anchor max_len mistaken for runtime cap"
       ]
     }
   },
@@ -493,13 +513,15 @@
     "severity": "High",
     "title": "Integer overflow, precision, rounding, decimal mismatch",
     "solidity": "Familiar from Solidity, but Rust release behavior, u64 token amounts, and fixed-point conventions differ.",
-    "difference": "Unlike Solidity 0.8 checked arithmetic, Rust primitive integer overflow is not automatically safe in optimized Solana program builds unless overflow checks or checked/saturating APIs are used. Lamports/token amounts are often `u64`; prices and rewards need `u128` intermediates, explicit rounding, and decimal normalization.",
-    "bad": "`amount * price / scale` in u64; division before multiplication; no checked math; token decimals assumed identical.",
-    "good": "Use `checked_*`, `u128` intermediates, explicit rounding direction, decimal bounds, invariant tests/fuzzing.",
+    "difference": "Unlike Solidity 0.8 checked arithmetic, Rust primitive integer overflow is not automatically safe in optimized Solana program builds unless overflow checks or checked/saturating APIs are used. Lamports/token amounts are often `u64`; prices and rewards need `u128` intermediates, explicit rounding, and decimal normalization. Even checked math can fail availability if the formula multiplies large decimal/index factors before a later division would reduce the value.",
+    "bad": "Use unchecked integer ops, cast down with `as`, divide before multiplying when precision matters, or multiply all decimal/index terms first so ordinary supported amounts overflow before reduction.",
+    "good": "Use checked arithmetic and a formula that reduces factors or performs full-precision `mul_div` while preserving the intended rounding direction. Bound supported decimals and price-index ranges together, then test maximum supported combinations.",
     "checks": [
       "Any unchecked arithmetic?",
       "Are token decimals and oracle decimals normalized?",
-      "Can repeated small actions exploit rounding?"
+      "Can repeated small actions exploit rounding?",
+      "Can checked multiplication overflow for supported decimals/indexes before a later division would reduce the value?",
+      "Are supported mint decimals and oracle index ranges jointly safe, not just individually bounded?"
     ],
     "refs": [
       "https://neodyme.io/en/blog/solana_common_pitfalls/",
@@ -524,7 +546,7 @@
       ],
       "concepts": [
         "unchecked arithmetic in optimized build",
-        "division before multiplication",
+        "multiply-before-divide overflow",
         "decimal/exponent mismatch",
         "rounding exploited by repeated small actions"
       ]
@@ -574,13 +596,16 @@
     "severity": "High",
     "title": "SPL Token / Token-2022 validation gaps",
     "solidity": "Comparable to ERC20 quirks, fee-on-transfer tokens, callbacks/hooks, and wrong token address assumptions.",
-    "difference": "Token balances are accounts owned by Token/Token-2022. Token-2022 extensions can add transfer fees, hooks, default frozen state, confidential transfers, permanent delegates, CPI guard, etc.",
-    "bad": "Accept any token account as vault; check authority but not mint; support Token-2022 without accounting for transfer fees/hooks/extensions.",
-    "good": "Validate token program, mint, account authority, ATA derivation, decimals, delegate/close authority, and relevant Token-2022 extensions. If the protocol is not designed for Token-2022 extension behavior, pin to the classic Token program instead of using token-interface types. If Token-2022 is accepted, parse and enforce an explicit extension allowlist/denylist.",
+    "difference": "Token balances are accounts owned by Token/Token-2022. Token-2022 extensions can add transfer fees, hooks, default frozen state, confidential transfers, permanent delegates, CPI guard, etc. A registration-time extension check can become stale if a mint can be closed/recreated or if an admin later replaces protocol mints without the same policy checks.",
+    "bad": "Accept any Token-2022 mint/account that passes a registration-time check, then assume later transfers are fee-free, accounts are thawed, mint extensions cannot drift, hooks always fail, or delegated/freeze/close authorities cannot affect liveness.",
+    "good": "Validate token program, mint, account authority, ATA derivation, decimals, delegate/close/freeze authorities, and relevant Token-2022 extensions at the boundary where the assumption is used. If extension policy is registration-time only, reject mint close/recreate drift or re-check the live extension set before transfers, burns, and mints.",
     "checks": [
       "Is classic Token vs Token-2022 support explicit?",
       "Do accounting assumptions survive transfer fees/hooks/frozen accounts?",
-      "Are ATAs derived when expected?"
+      "Are ATAs derived when expected?",
+      "Can a zero-supply mint with `MintCloseAuthority` be closed and recreated with a different extension set after registration?",
+      "Are protocol-mint replacement and collateral registration covered by explicit extension/authority/decimal policies?",
+      "Do freeze authority, default-frozen state, delegates, and transfer hooks create liveness failures even when accounting stays atomic?"
     ],
     "refs": [
       "https://spl.solana.com/token",
@@ -594,9 +619,13 @@
         "TokenInterface",
         "spl_token_2022",
         "transfer_fee",
+        "TransferFeeConfig",
         "transfer_hook",
         "get_account_data_size",
-        "token::mint"
+        "token::mint",
+        "MintCloseAuthority",
+        "DefaultAccountState",
+        "PermanentDelegate"
       ],
       "protocols": [
         "any token-handling program",
@@ -609,7 +638,9 @@
         "transfer hook reentrancy",
         "default-frozen accounts",
         "permanent delegate",
-        "confidential transfer"
+        "confidential transfer",
+        "mint close/recreate changes extension assumptions",
+        "freeze authority creates liveness risk"
       ]
     }
   },
@@ -619,13 +650,15 @@
     "severity": "High",
     "title": "Oracle, ordering, and MEV/front-running assumptions",
     "solidity": "Familiar DeFi class, but Solana has no Ethereum-style public mempool; MEV still exists via leaders, priority fees, private orderflow, Jito/bundles, and ordering-sensitive flows.",
-    "difference": "Solana has no globally gossiped Ethereum-style public mempool, but pending orderflow is not guaranteed private. Transactions may be visible to RPC providers, leaders/validators, relays/block engines, searchers, or private orderflow partners. Ordering-sensitive protocols should be treated as MEV-exposed unless deployment has documented protections.",
-    "bad": "No slippage/stale quote checks; lending accepts spot price without freshness/confidence/liquidity bounds; liquidation logic assumes deterministic ordering.",
-    "good": "Require slippage limits, oracle freshness/confidence checks, liquidity-aware risk parameters, TWAP/limits/circuit breakers where appropriate, robust liquidation ordering assumptions, and replay/nonce/domain checks.",
+    "difference": "Solana has no globally gossiped Ethereum-style public mempool, but pending orderflow is not guaranteed private. Transactions may be visible to RPC providers, leaders/validators, relays/block engines, searchers, or private orderflow partners. Ordering-sensitive protocols should be treated as MEV-exposed unless deployment has documented protections. Fresh signed quotes can still compose badly if the program accepts independent attestations that were not meant to share one conversion or swap.",
+    "bad": "Accept a price, quote, or attestation that is fresh but not bound to the amount, token side, direction, or paired quote set used in the action; allow independent fresh quotes to be mixed in one conversion or round trip.",
+    "good": "Bind quote/price data to the action: consumer, direction, input/output assets, amount, quote id or paired quote set, validity window, and nonce when one-time use is intended. If attestations are intentionally reusable, make the freshness window and off-chain issuance policy explicit trust assumptions.",
     "checks": [
       "Are oracle feeds correct, fresh, and confidence-bounded?",
       "Can price updates/trades/liquidations be reordered profitably?",
-      "Are priority fees/bundles/private orderflow assumptions documented?"
+      "Are priority fees/bundles/private orderflow assumptions documented?",
+      "Can two individually fresh quotes with different indexes be paired to skew a conversion?",
+      "Is quote id merely lineage, or is it checked/consumed/bound across both legs?"
     ],
     "refs": [
       "https://www.helius.dev/blog/solana-mev-an-introduction",
@@ -640,20 +673,23 @@
         "min_out",
         "deadline",
         "Clock",
-        "slot"
+        "slot",
+        "quote_id"
       ],
       "protocols": [
         "amm",
         "lending",
         "perps",
         "auctions",
-        "liquidations"
+        "liquidations",
+        "signed quotes"
       ],
       "concepts": [
         "no slippage / stale-quote protection",
         "ordering-sensitive flow",
         "private orderflow / Jito bundle assumptions",
-        "liquidation ordering assumed deterministic"
+        "liquidation ordering assumed deterministic",
+        "independent fresh quotes can be mixed"
       ]
     }
   },
@@ -851,13 +887,16 @@
     "severity": "Critical",
     "title": "Instruction introspection / signature verification misuse",
     "solidity": "Comparable to verifying a signature but not binding it to chain, contract, method, parameters, nonce, and deadline.",
-    "difference": "Solana often verifies Ed25519/secp signatures by including a verification instruction and reading the Instructions sysvar. The program must prove the exact signed payload and instruction position, not merely that some signature instruction exists.",
-    "bad": "Check that an Ed25519 instruction appears somewhere in the transaction, but do not bind signer, message, action parameters, nonce, expiry, or instruction index.",
-    "good": "Require exact Instructions sysvar address, expected previous/current instruction relationship, expected verifier program id, signer key, domain-separated message, nonce consumption, expiry, and all action parameters.",
+    "difference": "Solana often verifies Ed25519/secp signatures by including a verification instruction and reading the Instructions sysvar. The program must prove the exact signed payload and instruction position, not merely that some signature instruction exists. For permit and quote flows, separate the transaction signer or permit subject from the off-chain trusted signer, and distinguish one-time spend authorization from reusable price/lineage attestations.",
+    "bad": "Check that an Ed25519 instruction appears somewhere in the transaction, or parse a signed message without binding signer, verifier position, domain, action parameters, subject/source, recipient, token/mint side, amount, nonce or freshness window. Treating a signed price quote as spend authorization is also unsafe.",
+    "good": "Require exact Instructions sysvar address, expected relative verifier position, verifier program id, signer key, domain-separated message, nonce or bounded freshness, and every action/account/amount field the handler uses. For self-contained verifier layouts, reject descriptors that point signature, pubkey, or message bytes at another instruction. Document which signed object authorizes spending versus only supplies price or quote lineage.",
     "checks": [
       "Is the Instructions sysvar address checked?",
       "Is the signature instruction position tied to this instruction?",
-      "Does the signed message include program id, instruction, user, amount, accounts, nonce, expiry?"
+      "Does the signed message include program id, instruction, user, amount, accounts, nonce, expiry?",
+      "Are the transaction signer/source/subject and the off-chain trusted signer/oracle key distinct in the analysis?",
+      "If several verifier instructions are expected, are their relative offsets distinct and matched to the client transaction layout?",
+      "Is a signed quote/price attestation treated separately from spend authorization?"
     ],
     "examples": {
       "native_bad": "`let ix = load_instruction_at_checked(0, ix_sysvar)?; require_keys_eq!(ix.program_id, ed25519_program::ID);`",
@@ -876,17 +915,27 @@
         "ed25519",
         "secp256k1",
         "sysvar::instructions",
-        "load_current_index"
+        "instructions_sysvar",
+        "load_current_index",
+        "relative_offset",
+        "verify_ed25519_ix_at_relative_offset",
+        "Ed25519SignatureOffsets",
+        "trusted_signers",
+        "quote_id"
       ],
       "protocols": [
         "bridges",
         "meta-transactions",
         "permit-style flows",
-        "off-chain signed orders"
+        "off-chain signed orders",
+        "oracle attestations"
       ],
       "concepts": [
         "checks a signature instruction exists but not payload/signer/index",
-        "missing domain/nonce/expiry binding"
+        "missing domain/nonce/expiry binding",
+        "transaction signer confused with trusted off-chain signer",
+        "attestation freshness vs permit nonce asymmetry",
+        "signed quote mistaken for spend authorization"
       ]
     }
   },
@@ -1481,13 +1530,15 @@
     "severity": "High",
     "title": "Seed-prefix collision and PDA type confusion",
     "solidity": "Like two storage namespaces sharing the same slot prefix, letting one object type stand in for another.",
-    "difference": "PDAs are untyped addresses. If two account roles share seed structure or weak prefixes under the same program, raw/unchecked code can accept the wrong PDA type.",
-    "bad": "Use seeds like `[b\"vault\", user]` for multiple account types, then accept `UncheckedAccount` and only check the address prefix or owner.",
-    "good": "Use unique static domain prefixes per account type and action, include the resource keys that scope authority, and verify discriminator/type after PDA derivation.",
+    "difference": "PDAs are untyped addresses. If two account roles share seed structure or weak prefixes under the same program, raw/unchecked code can accept the wrong PDA type. Ambiguous encoding before hashing is still a seed collision even if the PDA seed array itself looks fixed-width.",
+    "bad": "Use seeds like `[b\"vault\", user]` for multiple account types, or hash `address || chain` / `format!(\"{}{}\", a, b)` without length prefixes or delimiters so `(ab, c)` and `(a, bc)` derive the same PDA.",
+    "good": "Use unique static domain prefixes per account type and action. For variable-length fields, length-prefix each field, hash each field separately, or use another unambiguous encoding before PDA derivation. Verify discriminator/type after PDA derivation.",
     "checks": [
       "Can two PDA account types share a seed tuple shape?",
       "Are static prefixes unique and documented?",
-      "Does unchecked PDA validation also prove discriminator/type?"
+      "Does unchecked PDA validation also prove discriminator/type?",
+      "Are any PDA seeds formed by concatenating variable-length strings or bytes before hashing?",
+      "Can two different user-visible identities share the same preimage because field boundaries are not encoded?"
     ],
     "examples": {
       "native_bad": "`PDA([b\"config\", user])` used for both user config and approval state.",
@@ -1505,15 +1556,20 @@
         "seeds =",
         "find_program_address",
         "b\"vault\"",
-        "UncheckedAccount"
+        "UncheckedAccount",
+        "sha256",
+        "format!"
       ],
       "protocols": [
-        "programs with multiple PDA account types"
+        "programs with multiple PDA account types",
+        "cross-chain registries",
+        "admin registries"
       ],
       "concepts": [
         "shared seed shape across account types",
         "weak or duplicated static prefix",
-        "type/discriminator not verified after derivation"
+        "type/discriminator not verified after derivation",
+        "variable-length fields concatenated without length prefix or delimiter"
       ]
     }
   },

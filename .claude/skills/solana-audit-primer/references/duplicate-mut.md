@@ -9,27 +9,29 @@
 
 **Protocol types:** transfers, games, two-account swap flows
 
-**Concepts:** same account passed for two roles; payer == recipient; user_a == user_b aliasing
+**Concepts:** same account passed for two roles; payer == recipient; user_a == user_b aliasing; SPL self-transfer succeeds without moving value
 
 ## Why this differs from Solidity/EVM
 
 Similar to passing the same address as two roles in a function that assumes distinct addresses.
 
-The same account key can be supplied for multiple account parameters unless constrained; mutable aliases can break debit/credit or game logic.
+The same account key can be supplied for multiple account parameters unless constrained; mutable aliases can break debit/credit or game logic. SPL token self-transfers can validate and return success without moving value, so distinctness can be economically relevant even when account constraints pass.
 
 ## Bad pattern
 
-`transfer_rewards(from, to)` assumes two accounts but attacker passes same account for both.
+Pass the same mutable account for two logical roles such as payer/recipient, input/output vault, depositor/custody beneficiary, or debit/credit token account.
 
 ## Good pattern
 
-Add explicit `a.key() != b.key()` constraints for all roles that must be distinct. Some Anchor versions/account types reject duplicate mutable accounts during validation, but do not rely on framework behavior for business-logic distinctness, especially with `UncheckedAccount`, `AccountInfo`, interface accounts, or `remaining_accounts`.
+Reject aliasing with explicit key inequality for roles that must be economically distinct, and assert balance deltas in tests for transfers that are supposed to move value.
 
 ## Audit checks
 
 - [ ] Which accounts are assumed distinct?
 - [ ] Can payer==recipient, vault==user token account, user_a==user_b?
 - [ ] Does Anchor typed mut duplicate protection cover this exact case?
+- [ ] Can an SPL token transfer be a same-account self-transfer that succeeds without moving value?
+- [ ] Do later mint/burn/accounting steps rely on a prior transfer having changed custody balances?
 
 ## Related patterns
 

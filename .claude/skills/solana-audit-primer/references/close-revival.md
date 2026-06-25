@@ -5,31 +5,34 @@
 
 ## Triggers — load this page when you see these
 
-**Code signals (grep the target):** `close =`, `lamports`, `try_borrow_mut_lamports`, `**`, `AccountInfo`
+**Code signals (grep the target):** `close =`, `lamports`, `try_borrow_mut_lamports`, `**`, `AccountInfo`, `CloseAccount`, `close_account`
 
-**Protocol types:** any account-closing flow, claims, escrow
+**Protocol types:** any account-closing flow, claims, escrow, queued settlement
 
-**Concepts:** manual close leaves data/discriminator valid; same-transaction revival; refund sent to wrong recipient
+**Concepts:** manual close leaves data/discriminator valid; same-transaction revival; refund sent to wrong recipient; token account rent stranded after authority PDA closes
 
 ## Why this differs from Solidity/EVM
 
 Similar to selfdestruct/recreate or stale storage assumptions, but account lamports/data/owner make it Solana-specific.
 
-Closing usually transfers lamports and resets/assigns account. Manual closes can leave data/discriminator valid; same transaction composition can revive accounts.
+Closing usually transfers lamports and resets/assigns account. Manual closes can leave data/discriminator valid; same transaction composition can revive accounts. Token accounts and ATAs are not closed by Anchor state-account `close`; they require Token Program `CloseAccount`, and can be stranded if their PDA authority state is closed first.
 
 ## Bad pattern
 
-Drain lamports but leave owner/data/discriminator as valid state, then later logic trusts stale data after refund.
+Drain lamports but leave owner/data/discriminator as valid state; close rent to an operator when the user paid it without documenting the fee; or settle an escrow while leaving a zero-balance token account open under an authority PDA that is about to be closed.
 
 ## Good pattern
 
-Prefer Anchor `close = recipient` and verify exact semantics for the Anchor version in scope. For manual close logic, clear or invalidate data, transfer/refund lamports intentionally, handle owner/realloc as appropriate for the account type, and ensure no later same-transaction logic trusts the closed account.
+Use Anchor `close = recipient` intentionally for program-owned state, and close SPL token accounts separately with `CloseAccount` before their authority PDA becomes unreachable. Identify the original payer or intended rent recipient for each close path.
 
 ## Audit checks
 
 - [ ] Are closed accounts impossible to reuse later in the same transaction?
 - [ ] Does close reset discriminator/data?
 - [ ] Are refunds sent to the intended recipient?
+- [ ] For every terminal action, are related token accounts/ATAs closed or intentionally left reclaimable?
+- [ ] Does closing a PDA state account strand rent in token accounts whose authority is that PDA?
+- [ ] Is the close recipient the account payer/user, or is operator/admin rent capture intended and disclosed?
 
 ## Public audit findings mapped to this pattern
 
