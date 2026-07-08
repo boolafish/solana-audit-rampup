@@ -261,6 +261,86 @@ Best practices:
 - Put cheap structural constraints (`address`, `owner`, `seeds`) before expensive custom deserialization where possible, but do not rely on ordering as your only defense.
 - Avoid side effects before all manual validations complete.
 
+Examples:
+
+**a) `#[instruction(...)]` brings instruction args into constraint scope.** By default constraints see only other accounts; declare args explicitly to reference them (e.g. in `seeds`).
+```rust
+#[derive(Accounts)]
+#[instruction(user_id: u64)]              // pull the arg into scope
+pub struct CreateUser<'info> {
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + User::SIZE,
+        seeds = [b"user", user_id.to_le_bytes().as_ref()],   // uses the arg
+        bump
+    )]
+    pub user: Account<'info, User>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+```
+Args in `#[instruction(...)]` must match the handler's parameters in order, from the left; you can list a prefix but cannot skip leading args.
+
+**b) Order fields so constraints reference already-declared accounts.** Anchor processes fields top-to-bottom; a reference resolves only if its target appears above.
+
+Bad:
+```rust
+pub struct Bad<'info> {
+    #[account(has_one = authority)] // references `authority`...
+    pub user: Account<'info, User>,
+    pub authority: Signer<'info>,   // ...declared below → won't resolve
+}
+```
+Good:
+```rust
+pub struct Good<'info> {
+    pub authority: Signer<'info>,            // declared first
+    #[account(has_one = authority)]
+    pub user: Account<'info, User>,
+    #[account(seeds = [b"vault", user.key().as_ref()], bump)] // uses `user` above
+    pub vault: Account<'info, Vault>,
+}
+```
+
+**c) Cheap structural checks before expensive deserialization** — fail fast on pubkey/owner compares before deserializing a large custom account. This is a performance/clarity optimization, never a security control; every constraint must still be correct on its own.
+```rust
+#[account(address = sysvar::clock::ID)]  // cheap key compare
+pub clock_sysvar: AccountInfo<'info>,
+#[account(owner = spl_token::ID)]        // cheap owner compare
+pub maybe_token: AccountInfo<'info>,
+#[account(
+    has_one = authority,
+    constraint = pool.validate_complex_invariants()?  // expensive, runs after
+)]
+pub pool: Account<'info, BigPoolState>,
+```
+
+**d) Validate everything before side effects** — checks → effects → interactions. A late-failing check cannot undo earlier mutations or CPIs.
+
+Bad:
+```rust
+pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
+    transfer_tokens(&ctx, amount)?;                       // side effect first
+    require!(amount <= ctx.accounts.vault.limit, ErrorCode::ExceedsLimit); // too late
+    Ok(())
+}
+```
+Good:
+```rust
+pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
+    require!(amount > 0, ErrorCode::ZeroAmount);
+    require!(amount <= ctx.accounts.vault.limit, ErrorCode::ExceedsLimit);
+    require!(ctx.accounts.vault.is_active, ErrorCode::Paused);
+    ctx.accounts.vault.balance = ctx.accounts.vault.balance
+        .checked_sub(amount)
+        .ok_or(ErrorCode::Underflow)?;
+    transfer_tokens(&ctx, amount)?;                       // act only after checks
+    Ok(())
+}
+```
+
 ### 15. Duplicate mutable accounts / account aliasing
 Bad:
 ```rust
@@ -300,19 +380,6 @@ pub token_program: Interface<'info, TokenInterface>;
 Best practices: decide whether classic Token, Token-2022, or either is allowed; bind mint/account constraints to the exact token program; validate or reject extensions such as transfer fees, transfer hooks, default frozen state, permanent delegates, non-transferability, confidential transfer, CPI guard, interest-bearing/scaled UI amounts, metadata/group pointers, and close/freeze authority differences if they affect protocol assumptions; use associated token constraints when expecting an ATA. `InterfaceAccount` validates token-interface shape, not economic compatibility.
 Reference: Anchor SPL token-interface docs and constraints docs show `*::token_program = <target_account>` override for token constraints.
 
-## Credible references
-- Anchor account constraints: https://www.anchor-lang.com/docs/references/account-constraints
-- Anchor PDA docs: https://www.anchor-lang.com/docs/basics/pda
-- Anchor token account / token interface docs: https://www.anchor-lang.com/docs/tokens/basics/create-token-account
-- Anchor `#[derive(Accounts)]` docs: https://docs.rs/anchor-lang/latest/anchor_lang/derive.Accounts.html
-- Anchor `Account<T>` docs: https://docs.rs/anchor-lang/latest/anchor_lang/accounts/account/struct.Account.html
-- Anchor `UncheckedAccount` docs: https://docs.rs/anchor-lang/latest/anchor_lang/accounts/unchecked_account/struct.UncheckedAccount.html
-- Anchor `InterfaceAccount<T>` docs: https://docs.rs/anchor-lang/latest/anchor_lang/accounts/interface_account/struct.InterfaceAccount.html
-- Anchor `AccountDeserialize` docs: https://docs.rs/anchor-lang/latest/anchor_lang/trait.AccountDeserialize.html
-- Coral sealevel-attacks examples: https://github.com/coral-xyz/sealevel-attacks
-- SlowMist Solana smart contract security best practices: https://github.com/slowmist/solana-smart-contract-security-best-practices
-- Helius Solana program security guide: https://www.helius.dev/blog/a-hitchhikers-guide-to-solana-program-security
-
 ### 17. Stale account data after CPI / `reload()`
 
 Bad:
@@ -339,3 +406,16 @@ For every target, check exact versions in `Cargo.lock` / `Anchor.toml` rather th
 - `solana-program`
 - `spl-token` and `spl-token-2022`
 - Anchor `close`, duplicate mutable account validation, `init_if_needed`, `realloc`, token-interface constraints
+
+## Credible references
+- Anchor account constraints: https://www.anchor-lang.com/docs/references/account-constraints
+- Anchor PDA docs: https://www.anchor-lang.com/docs/basics/pda
+- Anchor token account / token interface docs: https://www.anchor-lang.com/docs/tokens/basics/create-token-account
+- Anchor `#[derive(Accounts)]` docs: https://docs.rs/anchor-lang/latest/anchor_lang/derive.Accounts.html
+- Anchor `Account<T>` docs: https://docs.rs/anchor-lang/latest/anchor_lang/accounts/account/struct.Account.html
+- Anchor `UncheckedAccount` docs: https://docs.rs/anchor-lang/latest/anchor_lang/accounts/unchecked_account/struct.UncheckedAccount.html
+- Anchor `InterfaceAccount<T>` docs: https://docs.rs/anchor-lang/latest/anchor_lang/accounts/interface_account/struct.InterfaceAccount.html
+- Anchor `AccountDeserialize` docs: https://docs.rs/anchor-lang/latest/anchor_lang/trait.AccountDeserialize.html
+- Coral sealevel-attacks examples: https://github.com/coral-xyz/sealevel-attacks
+- SlowMist Solana smart contract security best practices: https://github.com/slowmist/solana-smart-contract-security-best-practices
+- Helius Solana program security guide: https://www.helius.dev/blog/a-hitchhikers-guide-to-solana-program-security
